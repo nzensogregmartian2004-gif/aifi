@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "AIFI",
+    "slug": "aifi-client",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "backgroundColor": "#142136"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.aifi.client",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#b8862e"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "AIFI a besoin d'accéder à tes photos pour joindre un justificatif.",
+          "cameraPermission": "AIFI a besoin d'accéder à ton appareil photo pour prendre un justificatif."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "a328f3c7-8245-4541-a930-6908755c65b1"
+      }
+    },
+    "owner": "martian5555"
+  }
+}
