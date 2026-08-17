@@ -12,6 +12,11 @@ import paymentsRoutes from "./routes/payments.routes";
 
 export const app = express();
 
+// Render place le serveur derrière un reverse proxy : on lui fait confiance
+// pour que express-rate-limit identifie correctement l'IP réelle du client
+// via X-Forwarded-For, plutôt que de tout compter comme une seule IP (le proxy).
+app.set("trust proxy", 1);
+
 app.use(cors());
 app.use(express.json());
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
