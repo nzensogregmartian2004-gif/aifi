@@ -8,12 +8,14 @@ import {
   Platform,
   ScrollView,
   Pressable,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
 import { PrimaryButton } from "../components/ui";
 import { colors, fonts } from "../theme";
 import { apiErrorMessage } from "../api/client";
+import { API_URL } from "../config";
 
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
@@ -42,7 +44,11 @@ export default function LoginScreen({ navigation }) {
     >
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.seal}>
-          <Text style={styles.sealText}>AI</Text>
+          <Image
+            source={require("../../assets/adaptive-icon.png")}
+            style={styles.sealImage}
+            resizeMode="contain"
+          />
         </View>
         <Text style={styles.title}>AIFI</Text>
         <Text style={styles.subtitle}>Ton cercle d'entraide financière</Text>
@@ -98,6 +104,11 @@ export default function LoginScreen({ navigation }) {
             style={{ marginTop: 10 }}
           />
         </View>
+
+        {/* Texte de debug temporaire — à retirer une fois le problème réseau résolu */}
+        <Text style={styles.debugText}>
+          API_URL : {API_URL || "(vide — variable absente du build)"}
+        </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -111,21 +122,18 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   seal: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     borderWidth: 2,
     borderColor: colors.gold,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14,
+    backgroundColor: "#fff",
+    overflow: "hidden",
   },
-  sealText: {
-    fontFamily: fonts.mono,
-    color: colors.gold,
-    fontWeight: "700",
-    fontSize: 24,
-  },
+  sealImage: { width: 60, height: 60 },
   title: {
     fontFamily: fonts.display,
     fontSize: 30,
@@ -186,5 +194,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 4,
     fontSize: 13,
+  },
+  debugText: {
+    color: "#5a6478",
+    fontSize: 10.5,
+    marginTop: 16,
+    textAlign: "center",
   },
 });
