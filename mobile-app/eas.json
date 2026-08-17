@@ -1,16 +1,30 @@
 {
   "cli": {
-    "version": ">= 12.0.0"
+    "version": ">= 21.8.0",
+    "appVersionSource": "remote"
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://aifi.onrender.com/api"
+      }
+    },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://aifi.onrender.com/api"
       }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://aifi.onrender.com/api"
+      }
     }
   },
   "submit": {
