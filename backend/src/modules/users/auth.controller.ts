@@ -85,12 +85,15 @@ export async function login(phone: string, password: string) {
 
   clearAttempts(phone);
 
-  if (user.status !== "ACTIVE") {
-    throw new Error("Compte non validé par l'administrateur");
+  // Un compte PENDING peut désormais se connecter (accès restreint géré côté
+  // client + côté demande d'aide), pour que le client voie tout de suite son
+  // tableau de bord après inscription. Seul un compte SUSPENDED reste bloqué.
+  if (user.status === "SUSPENDED") {
+    throw new Error("Compte suspendu. Contacte un administrateur.");
   }
 
   const token = signToken({ userId: user.id, role: user.role });
-  return { token, user: { id: user.id, name: user.name, role: user.role } };
+  return { token, user: { id: user.id, name: user.name, role: user.role, status: user.status } };
 }
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string) {

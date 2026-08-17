@@ -1,65 +1,124 @@
-import React from "react";
-import { View, Text, ScrollView, StyleSheet } from "react-native";
+import React, { useRef, useState } from "react";
+import {
+  View,
+  Text,
+  FlatList,
+  StyleSheet,
+  Dimensions,
+  Pressable,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Card, PrimaryButton } from "../components/ui";
+import { PrimaryButton } from "../components/ui";
 import { colors, fonts } from "../theme";
 import { useAuth } from "../context/AuthContext";
 
 export const ONBOARDING_SEEN_KEY = "aifi_onboarding_seen";
 
+const { width } = Dimensions.get("window");
+
 const SECTIONS = [
   {
+    icon: "shield-checkmark-outline",
     title: "Bienvenue sur AIFI",
-    text: "AIFI est une application privée d'entraide financière entre personnes de confiance. Tout est validé manuellement par un administrateur — aucun paiement automatique.",
+    text: "Un cercle d'entraide financière entre personnes de confiance. Tout est validé manuellement par un administrateur.",
   },
   {
-    title: "Points et niveau de confiance",
-    text: "Chaque action positive (compte validé, remboursement à temps, parrainage validé) te fait gagner des points. Plus tu as de points, plus ton plafond d'aide disponible augmente.",
+    icon: "star-outline",
+    title: "Points et confiance",
+    text: "Chaque action positive fait gagner des points. Plus tu en as, plus ton plafond d'aide augmente.",
   },
   {
+    icon: "cash-outline",
     title: "Demander une aide",
-    text: "Tu peux demander n'importe quel montant tant qu'il ne dépasse pas ton plafond disponible. Un administrateur examine ensuite ta demande et l'accepte, la refuse ou l'envoie manuellement.",
+    text: "Demande n'importe quel montant sous ton plafond. Un administrateur examine ensuite ta demande.",
   },
   {
+    icon: "repeat-outline",
     title: "Rembourser",
-    text: "Le remboursement se fait hors application (Mobile Money, en main propre...). Tu déclares ensuite dans l'app le montant remboursé, et l'administrateur le confirme après vérification.",
+    text: "Rembourse hors application (Mobile Money, en main propre...), puis déclare le montant dans l'app.",
   },
   {
+    icon: "people-outline",
     title: "Parrainage",
-    text: "Partage ton code ou ton lien de parrainage. Quand la personne parrainée est validée, tu reçois un bonus dans ton portefeuille, plus une commission à chacun de ses remboursements.",
+    text: "Partage ton code. Quand ton filleul est validé, tu reçois un bonus et une commission sur ses remboursements.",
   },
 ];
 
+function Slide({ item }) {
+  return (
+    <View style={styles.slide}>
+      <View style={styles.iconWrap}>
+        <Ionicons name={item.icon} size={96} color={colors.gold} />
+      </View>
+      <Text style={styles.slideTitle}>{item.title}</Text>
+      <Text style={styles.slideText}>{item.text}</Text>
+    </View>
+  );
+}
+
 export default function OnboardingScreen({ navigation }) {
   const { isAuthenticated } = useAuth();
+  const [index, setIndex] = useState(0);
+  const listRef = useRef(null);
 
   async function finish(destination) {
     await AsyncStorage.setItem(ONBOARDING_SEEN_KEY, "1");
     navigation.replace(destination);
   }
 
+  function onScrollEnd(e) {
+    const newIndex = Math.round(e.nativeEvent.contentOffset.x / width);
+    setIndex(newIndex);
+  }
+
+  function goTo(i) {
+    listRef.current?.scrollToIndex({ index: i, animated: true });
+    setIndex(i);
+  }
+
+  const isLast = index === SECTIONS.length - 1;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.paper }}>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 20 }}>
-        <Text style={styles.title}>Comment fonctionne AIFI</Text>
-        <Text style={styles.subtitle}>Quelques minutes pour comprendre l'essentiel avant de commencer.</Text>
+      <FlatList
+        ref={listRef}
+        data={SECTIONS}
+        keyExtractor={(item) => item.title}
+        renderItem={({ item }) => <Slide item={item} />}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={onScrollEnd}
+        style={{ flexGrow: 0 }}
+      />
 
-        {SECTIONS.map((s) => (
-          <Card key={s.title}>
-            <Text style={styles.sectionTitle}>{s.title}</Text>
-            <Text style={styles.sectionText}>{s.text}</Text>
-          </Card>
+      <View style={styles.dots}>
+        {SECTIONS.map((_, i) => (
+          <Pressable key={i} onPress={() => goTo(i)} hitSlop={8}>
+            <View style={[styles.dot, i === index && styles.dotActive]} />
+          </Pressable>
         ))}
-      </ScrollView>
+      </View>
 
       <View style={styles.footer}>
         {isAuthenticated ? (
           <PrimaryButton title="Retour" onPress={() => navigation.goBack()} />
-        ) : (
+        ) : isLast ? (
           <>
-            <PrimaryButton title="Créer un compte" onPress={() => finish("Register")} />
-            <PrimaryButton title="J'ai déjà un compte" variant="outline" onPress={() => finish("Login")} style={{ marginTop: 10 }} />
+            <PrimaryButton
+              title="Créer un compte"
+              onPress={() => finish("Register")}
+            />
+            <PrimaryButton
+              title="J'ai déjà un compte"
+              variant="outline"
+              onPress={() => finish("Login")}
+              style={{ marginTop: 10 }}
+            />
           </>
+        ) : (
+          <PrimaryButton title="Suivant" onPress={() => goTo(index + 1)} />
         )}
       </View>
     </View>
@@ -67,9 +126,51 @@ export default function OnboardingScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  title: { fontFamily: fonts.display, fontSize: 26, fontWeight: "700", color: colors.ink, marginBottom: 6 },
-  subtitle: { fontSize: 13.5, color: colors.inkSoft, marginBottom: 18 },
-  sectionTitle: { fontSize: 15, fontWeight: "700", color: colors.gold, marginBottom: 6 },
-  sectionText: { fontSize: 13.5, color: colors.ink, lineHeight: 19 },
-  footer: { padding: 20, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.paper },
+  slide: {
+    width,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    paddingTop: 70,
+    paddingBottom: 10,
+  },
+  iconWrap: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: colors.ink,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 28,
+  },
+  slideTitle: {
+    fontFamily: fonts.display,
+    fontSize: 22,
+    fontWeight: "700",
+    color: colors.ink,
+    textAlign: "center",
+    marginBottom: 10,
+  },
+  slideText: {
+    fontSize: 14,
+    color: colors.inkSoft,
+    textAlign: "center",
+    lineHeight: 20,
+    maxWidth: 300,
+  },
+  dots: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: colors.line,
+    marginHorizontal: 4,
+  },
+  dotActive: { backgroundColor: colors.gold, width: 20 },
+  footer: { padding: 20, paddingTop: 4 },
 });

@@ -6,7 +6,7 @@ import { colors } from "../theme";
 import { useAuth } from "../context/AuthContext";
 
 export default function ProfileScreen({ navigation }) {
-  const { logout } = useAuth();
+  const { logout, isAdmin } = useAuth();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -41,18 +41,35 @@ export default function ProfileScreen({ navigation }) {
     <View style={{ flex: 1, backgroundColor: colors.paper, padding: 20, paddingTop: 60 }}>
       <ScreenTitle subtitle="Sécurité de ton compte">Mon profil</ScreenTitle>
 
-      <Card>
-        <Text style={styles.cardTitle}>Comment fonctionne AIFI ?</Text>
-        <Text style={styles.sectionText}>
-          Points, plafonds, demandes d'aide, remboursement, parrainage... Retrouve les explications à tout moment.
-        </Text>
-        <PrimaryButton
-          title="Revoir les explications"
-          variant="outline"
-          onPress={() => navigation.navigate("Onboarding")}
-          style={{ marginTop: 12 }}
-        />
-      </Card>
+      {!isAdmin && (
+        <Card>
+          <Text style={styles.cardTitle}>Comment fonctionne AIFI ?</Text>
+          <Text style={styles.sectionText}>
+            Points, plafonds, demandes d'aide, remboursement, parrainage... Retrouve les explications à tout moment.
+          </Text>
+          <PrimaryButton
+            title="Revoir les explications"
+            variant="outline"
+            onPress={() => navigation.navigate("Onboarding")}
+            style={{ marginTop: 12 }}
+          />
+        </Card>
+      )}
+
+      {isAdmin && (
+        <Card>
+          <Text style={styles.cardTitle}>Administrateurs</Text>
+          <Text style={styles.sectionText}>
+            Crée un accès direct côté administration pour une autre personne de confiance.
+          </Text>
+          <PrimaryButton
+            title="Gérer les administrateurs"
+            variant="outline"
+            onPress={() => navigation.navigate("AdminManageAdmins")}
+            style={{ marginTop: 12 }}
+          />
+        </Card>
+      )}
 
       <Card>
         <Text style={styles.cardTitle}>Changer mon mot de passe</Text>

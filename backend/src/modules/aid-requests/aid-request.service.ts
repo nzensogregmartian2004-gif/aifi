@@ -26,6 +26,11 @@ export async function requestAid(userId: string, amount: number) {
     throw new Error("Le montant demandé doit être positif");
   }
 
+  const requester = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  if (requester.status !== "ACTIVE") {
+    throw new Error("Ton compte doit d'abord être validé par un administrateur avant de pouvoir demander une aide.");
+  }
+
   const available = await getAvailableCeiling(userId);
   if (amount > available) {
     throw new Error(`Montant demandé (${amount}) dépasse le plafond disponible (${available})`);

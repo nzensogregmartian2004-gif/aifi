@@ -4,6 +4,7 @@
     "slug": "aifi-client",
     "version": "1.0.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
       "backgroundColor": "#142136"
@@ -16,6 +17,10 @@
     },
     "android": {
       "package": "com.aifi.client",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#142136"
+      },
       "permissions": [
         "android.permission.RECORD_AUDIO"
       ]

@@ -14,18 +14,28 @@ const POLL_INTERVAL_MS = 4000;
 const POLL_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes, comme recommandé par MyPVit
 
 /**
- * `aidRequest` : l'aide à rembourser. `onDone(success)` est appelé à la fin
- * (paiement confirmé, échoué, ou abandonné) pour que l'écran parent recharge.
+ * `aidRequest` : l'aide à rembourser. `remaining` : montant restant dû (FCFA).
+ * `mode` : "full" solde le reste dû en un clic (montant fixe, non modifiable).
+ *          "partial" ("faire une avance") laisse le client choisir un montant,
+ *          plafonné au reste dû et soumis au minimum de remboursement partiel.
+ * `onDone(success)` est appelé à la fin (paiement confirmé, échoué, ou
+ * abandonné) pour que l'écran parent recharge.
  * `onFallbackManual` permet de basculer vers la déclaration manuelle si le
  * paiement échoue ou traîne trop longtemps.
  */
-export default function MobileMoneyPayModal({ visible, aidRequest, onClose, onDone, onFallbackManual }) {
+export default function MobileMoneyPayModal({
+  visible, aidRequest, remaining, mode = "full", minRepaymentAmount,
+  onClose, onDone, onFallbackManual,
+}) {
   const [operator, setOperator] = useState("AIRTEL_MONEY");
   const [amount, setAmount] = useState("");
   const [stage, setStage] = useState("form"); // form | pending | success | failed
   const [error, setError] = useState("");
   const pollRef = useRef(null);
   const timeoutRef = useRef(null);
+
+  const isPartial = mode === "partial";
+  const effectiveAmount = isPartial ? amount : String(remaining || "");
 
   useEffect(() => {
     if (visible) {
@@ -37,11 +47,18 @@ export default function MobileMoneyPayModal({ visible, aidRequest, onClose, onDo
       clearInterval(pollRef.current);
       clearTimeout(timeoutRef.current);
     };
-  }, [visible]);
+  }, [visible, mode]);
 
   async function submit() {
-    const value = parseInt(amount, 10);
-    if (!value || value <= 0) return setError("Montant invalide.");
+    const value = parseInt(effectiveAmount, 10);
+    if (!value || value <= 0) return setError("Entre un montant valide.");
+    if (remaining != null && value > remaining) {
+      return setError(`Le montant ne peut pas dépasser le reste dû (${money(remaining)} FCFA).`);
+    }
+    const isFinalPayment = remaining != null && value === remaining;
+    if (isPartial && !isFinalPayment && minRepaymentAmount && value < minRepaymentAmount) {
+      return setError(`Le montant minimum d'une avance est de ${money(minRepaymentAmount)} FCFA.`);
+    }
     setError("");
     setStage("pending");
     try {
@@ -49,7 +66,7 @@ export default function MobileMoneyPayModal({ visible, aidRequest, onClose, onDo
         amount: value,
         operatorCode: operator,
       });
-      pollStatus(data.transactionId, value);
+      pollStatus(data.transactionId);
     } catch (err) {
       setError(apiErrorMessage(err));
       setStage("form");
@@ -77,7 +94,7 @@ export default function MobileMoneyPayModal({ visible, aidRequest, onClose, onDo
 
     timeoutRef.current = setTimeout(() => {
       clearInterval(pollRef.current);
-      if (stage === "pending") setStage("timeout");
+      setStage((s) => (s === "pending" ? "timeout" : s));
     }, POLL_TIMEOUT_MS);
   }
 
@@ -93,14 +110,23 @@ export default function MobileMoneyPayModal({ visible, aidRequest, onClose, onDo
         <View style={styles.card}>
           {stage === "form" && (
             <>
-              <Text style={styles.title}>Payer</Text>
+              <Text style={styles.title}>{isPartial ? "Faire une avance" : "Rembourser"}</Text>
+
+              {remaining != null && (
+                <View style={styles.remainingBox}>
+                  <Text style={styles.remainingLabel}>Reste dû</Text>
+                  <Text style={styles.remainingValue}>{money(remaining)} FCFA</Text>
+                </View>
+              )}
+
               <Text style={styles.subtitle}>
                 {operator === "VISA_MASTERCARD"
                   ? "Tu recevras un code de validation par SMS pour confirmer le paiement par carte."
                   : `Tu recevras une demande de validation sur ton téléphone (${operator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}).`}
               </Text>
 
-              <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+              <Text style={styles.label}>Opérateur</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
                 {OPERATORS.map((op) => (
                   <TouchableOpacity
                     key={op.code}
@@ -112,17 +138,33 @@ export default function MobileMoneyPayModal({ visible, aidRequest, onClose, onDo
                 ))}
               </View>
 
-              <TextInput
-                style={styles.input}
-                value={amount}
-                onChangeText={setAmount}
-                placeholder="Montant (FCFA)"
-                keyboardType="numeric"
+              {isPartial ? (
+                <>
+                  <Text style={styles.label}>Montant de l'avance (FCFA)</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={amount}
+                    onChangeText={(v) => setAmount(v.replace(/[^0-9]/g, ""))}
+                    placeholder={`Max ${remaining != null ? money(remaining) : ""} FCFA`}
+                    keyboardType="numeric"
+                  />
+                  {!!minRepaymentAmount && (
+                    <Text style={styles.hint}>Minimum {money(minRepaymentAmount)} FCFA (sauf pour solder entièrement).</Text>
+                  )}
+                </>
+              ) : (
+                <View style={styles.fixedAmountBox}>
+                  <Text style={styles.fixedAmountText}>Montant à rembourser : {money(remaining)} FCFA</Text>
+                </View>
+              )}
+
+              {!!error && <Text style={{ color: colors.danger, marginTop: 10, marginBottom: 2 }}>{error}</Text>}
+
+              <PrimaryButton
+                title={isPartial ? "Envoyer l'avance" : `Rembourser ${remaining != null ? money(remaining) + " FCFA" : ""}`}
+                onPress={submit}
+                style={{ marginTop: 14 }}
               />
-
-              {!!error && <Text style={{ color: colors.danger, marginBottom: 10 }}>{error}</Text>}
-
-              <PrimaryButton title="Payer maintenant" onPress={submit} style={{ marginTop: 4 }} />
               <TouchableOpacity onPress={close} style={{ marginTop: 12, alignItems: "center" }}>
                 <Text style={{ color: colors.inkSoft }}>Annuler</Text>
               </TouchableOpacity>
@@ -136,7 +178,7 @@ export default function MobileMoneyPayModal({ visible, aidRequest, onClose, onDo
                 {operator === "VISA_MASTERCARD" ? "Valide avec le code reçu par SMS" : "Valide sur ton téléphone"}
               </Text>
               <Text style={[styles.subtitle, { textAlign: "center" }]}>
-                Une demande de paiement de {money(amount)} FCFA a été envoyée.{" "}
+                Une demande de paiement de {money(effectiveAmount)} FCFA a été envoyée.{" "}
                 {operator === "VISA_MASTERCARD"
                   ? "Suis les instructions reçues par SMS pour confirmer."
                   : "Confirme-la avec ton code Mobile Money."}
@@ -184,6 +226,18 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 22, paddingBottom: 34 },
   title: { fontSize: 17, fontWeight: "800", color: colors.ink },
   subtitle: { fontSize: 13, color: colors.inkSoft, marginTop: 6, marginBottom: 14, lineHeight: 18 },
+  remainingBox: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    backgroundColor: colors.paper, borderRadius: 10, padding: 12, marginTop: 12, marginBottom: 4,
+  },
+  remainingLabel: { fontSize: 11.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase" },
+  remainingValue: { fontSize: 16, fontWeight: "800", color: colors.ink },
+  label: { fontSize: 12, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", marginBottom: 6 },
+  hint: { fontSize: 11.5, color: colors.inkSoft, marginTop: 6 },
+  fixedAmountBox: {
+    backgroundColor: colors.ink, borderRadius: 10, padding: 14, alignItems: "center", marginBottom: 4,
+  },
+  fixedAmountText: { color: colors.white, fontSize: 16, fontWeight: "700" },
   chip: {
     paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, backgroundColor: colors.paper,
     borderWidth: 1, borderColor: colors.line,
@@ -193,6 +247,6 @@ const styles = StyleSheet.create({
   chipTextActive: { color: colors.white },
   input: {
     borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 12, fontSize: 15,
-    backgroundColor: colors.paper, marginBottom: 12,
+    backgroundColor: colors.paper, marginBottom: 4,
   },
 });

@@ -14,7 +14,7 @@
     "dev": "tsx watch src/server.ts",
     "postinstall": "prisma generate",
     "build": "tsc",
-    "start": "prisma migrate deploy && node dist/server.js",
+    "start": "prisma migrate deploy && npm run seed && node dist/server.js",
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",

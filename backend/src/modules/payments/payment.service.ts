@@ -1,6 +1,6 @@
 import { prisma } from "../../db/client";
 import { initiatePayment, generatePaymentReference, checkTransactionStatus } from "./mypvit.client";
-import { recordRepayment } from "../repayments/repayment.service";
+import { recordRepayment, getRemainingAmount } from "../repayments/repayment.service";
 import { notifyUser } from "../notifications/notification.service";
 
 export async function startRepaymentPayment(userId: string, aidRequestId: string, amount: number, operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY" | "VISA_MASTERCARD") {
@@ -10,6 +10,14 @@ export async function startRepaymentPayment(userId: string, aidRequestId: string
   }
   if (!["ACCEPTED", "DISBURSED", "LATE"].includes(aidRequest.status)) {
     throw new Error("Cette aide n'est pas en attente de remboursement");
+  }
+  if (!amount || amount <= 0) {
+    throw new Error("Le montant doit être positif");
+  }
+
+  const remaining = await getRemainingAmount(aidRequestId);
+  if (amount > remaining) {
+    throw new Error(`Le montant (${amount}) dépasse le reste dû (${remaining} FCFA).`);
   }
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });

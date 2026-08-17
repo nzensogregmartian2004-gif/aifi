@@ -15,6 +15,7 @@ export default function AidRequestsScreen({ navigation }) {
   const [refreshing, setRefreshing] = useState(false);
   const [declareTarget, setDeclareTarget] = useState(null);
   const [payTarget, setPayTarget] = useState(null);
+  const [payMode, setPayMode] = useState("full"); // "full" = Rembourser | "partial" = Faire une avance
   const [mypvitAvailable, setMypvitAvailable] = useState(false);
   const [minRepaymentAmount, setMinRepaymentAmount] = useState(null);
   const [amount, setAmount] = useState("");
@@ -51,6 +52,11 @@ export default function AidRequestsScreen({ navigation }) {
     setFormError("");
   }
 
+  function openPay(item, mode) {
+    setPayMode(mode);
+    setPayTarget(item);
+  }
+
   async function submitDeclare() {
     setFormError("");
     const value = Number(amount);
@@ -83,6 +89,10 @@ export default function AidRequestsScreen({ navigation }) {
     }
   }
 
+  const payTargetRemaining = payTarget
+    ? payTarget.amount - payTarget.repayments.reduce((s, r) => s + r.amount, 0)
+    : null;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.paper, paddingTop: 60 }}>
       <View style={{ paddingHorizontal: 20 }}>
@@ -99,6 +109,7 @@ export default function AidRequestsScreen({ navigation }) {
         ListEmptyComponent={<EmptyState text="Tu n'as encore fait aucune demande d'aide." />}
         renderItem={({ item }) => {
           const repaid = item.repayments.reduce((s, r) => s + r.amount, 0);
+          const remaining = item.amount - repaid;
           const pendingDeclaration = (item.repaymentDeclarations || []).find((d) => d.status === "PENDING");
           const canDeclare = REPAYABLE_STATUSES.includes(item.status) && !pendingDeclaration;
           return (
@@ -115,6 +126,11 @@ export default function AidRequestsScreen({ navigation }) {
               {repaid > 0 && (
                 <Text style={styles.meta}>Remboursé : {money(repaid)} / {money(item.amount)} FCFA</Text>
               )}
+              {canDeclare && (
+                <View style={styles.remainingBadge}>
+                  <Text style={styles.remainingBadgeText}>Reste dû : {money(remaining)} FCFA</Text>
+                </View>
+              )}
               <Text style={styles.metaFaint}>Demandé le {new Date(item.createdAt).toLocaleDateString("fr-FR")}</Text>
 
               {pendingDeclaration && (
@@ -128,14 +144,18 @@ export default function AidRequestsScreen({ navigation }) {
               {canDeclare && (
                 <>
                   {mypvitAvailable && (
-                    <PrimaryButton
-                      title="Payer en ligne"
-                      onPress={() => setPayTarget(item)}
-                      style={{ marginTop: 10 }}
-                    />
+                    <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
+                      <PrimaryButton title="Rembourser" onPress={() => openPay(item, "full")} style={{ flex: 1 }} />
+                      <PrimaryButton
+                        title="Faire une avance"
+                        variant="outline"
+                        onPress={() => openPay(item, "partial")}
+                        style={{ flex: 1 }}
+                      />
+                    </View>
                   )}
                   <PrimaryButton
-                    title="J'ai remboursé"
+                    title="J'ai remboursé (hors application)"
                     variant="outline"
                     onPress={() => openDeclare(item)}
                     style={{ marginTop: 10 }}
@@ -194,6 +214,9 @@ export default function AidRequestsScreen({ navigation }) {
       <MobileMoneyPayModal
         visible={!!payTarget}
         aidRequest={payTarget}
+        remaining={payTargetRemaining}
+        mode={payMode}
+        minRepaymentAmount={minRepaymentAmount}
         onClose={() => setPayTarget(null)}
         onDone={() => load()}
         onFallbackManual={() => { const t = payTarget; setPayTarget(null); openDeclare(t); }}
@@ -205,6 +228,11 @@ export default function AidRequestsScreen({ navigation }) {
 const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.inkSoft, marginTop: 8 },
   metaFaint: { fontSize: 11.5, color: colors.inkSoft, marginTop: 6, opacity: 0.7 },
+  remainingBadge: {
+    alignSelf: "flex-start", backgroundColor: colors.ink, borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 5, marginTop: 8,
+  },
+  remainingBadgeText: { color: colors.white, fontSize: 12.5, fontWeight: "700" },
   pendingBox: { backgroundColor: colors.warnSoft, borderRadius: 8, padding: 10, marginTop: 10 },
   pendingText: { fontSize: 12.5, color: colors.warn, fontWeight: "600" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(20,33,54,0.5)", justifyContent: "flex-end" },

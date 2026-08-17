@@ -30,6 +30,7 @@ import AdminUserDetailScreen from "../screens/admin/AdminUserDetailScreen";
 import AdminConversationsScreen from "../screens/admin/AdminConversationsScreen";
 import AdminChatScreen from "../screens/admin/AdminChatScreen";
 import AdminAuditLogScreen from "../screens/admin/AdminAuditLogScreen";
+import AdminManageAdminsScreen from "../screens/admin/AdminManageAdminsScreen";
 
 const RootStack = createNativeStackNavigator();
 const AidStack = createNativeStackNavigator();
@@ -175,7 +176,10 @@ export default function RootNavigator() {
       <RootStack.Navigator screenOptions={{ headerShown: false }}>
         {isAuthenticated ? (
           isAdmin ? (
-            <RootStack.Screen name="Main" component={AdminTabs} />
+            <>
+              <RootStack.Screen name="Main" component={AdminTabs} />
+              <RootStack.Screen name="AdminManageAdmins" component={AdminManageAdminsScreen} />
+            </>
           ) : (
             <>
               <RootStack.Screen name="Main" component={MainTabs} />
