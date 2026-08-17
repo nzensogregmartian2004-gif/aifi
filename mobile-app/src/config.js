@@ -3,7 +3,7 @@
 // - Simulateur iOS : http://localhost:4000/api
 // - Téléphone physique (Expo Go) : http://<IP_LOCALE_DE_TON_ORDI>:4000/api
 // - Serveur déployé : https://ton-domaine.com/api
-export const API_URL = "https://aifi.onrender.com/apif";
+export const API_URL = "https://aifi.onrender.com/api";
 
 // Racine du serveur (sans /api), utilisée pour afficher les images uploadées
 // (justificatifs, pièces jointes de messagerie) dont l'URL renvoyée par le

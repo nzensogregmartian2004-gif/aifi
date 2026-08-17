@@ -15,7 +15,6 @@ import { useAuth } from "../context/AuthContext";
 import { PrimaryButton } from "../components/ui";
 import { colors, fonts } from "../theme";
 import { apiErrorMessage } from "../api/client";
-import { API_URL } from "../config";
 
 export default function LoginScreen({ navigation }) {
   const { login } = useAuth();
@@ -104,11 +103,6 @@ export default function LoginScreen({ navigation }) {
             style={{ marginTop: 10 }}
           />
         </View>
-
-        {/* Texte de debug temporaire — à retirer une fois le problème réseau résolu */}
-        <Text style={styles.debugText}>
-          API_URL : {API_URL || "(vide — variable absente du build)"}
-        </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -194,11 +188,5 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 4,
     fontSize: 13,
-  },
-  debugText: {
-    color: "#5a6478",
-    fontSize: 10.5,
-    marginTop: 16,
-    textAlign: "center",
   },
 });
