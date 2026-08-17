@@ -1,0 +1,48 @@
+# ===== Dépendances =====
+node_modules/
+**/node_modules/
+
+# ===== Environnement / secrets =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ===== Backend (TypeScript / Prisma) =====
+backend/dist/
+backend/build/
+*.tsbuildinfo
+
+# ===== Mobile (Expo / React Native) =====
+mobile-app/.expo/
+mobile-app/dist/
+mobile-app/web-build/
+mobile-app/.expo-shared/
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+*.orig.*
+
+# EAS
+mobile-app/android/
+mobile-app/ios/
+
+# ===== Logs =====
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# ===== OS / éditeurs =====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ===== Divers =====
+*.zip
+*.tmp
+coverage/
