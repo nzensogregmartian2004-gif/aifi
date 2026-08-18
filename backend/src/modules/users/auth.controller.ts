@@ -59,7 +59,32 @@ export async function register(name: string, phone: string, password: string, re
     data: { name, phone, passwordHash, referralCode: code, referredById },
   });
 
+  await sendWelcomeMessage(user.id);
+
   return user;
+}
+
+/**
+ * Message automatique envoyé par un administrateur juste après l'inscription,
+ * expliquant ce qu'il faut fournir dans "Messages" pour faire valider le
+ * compte. Attribué au premier administrateur trouvé (peu importe lequel, il
+ * n'y a qu'un seul fil de discussion par client de toute façon).
+ */
+async function sendWelcomeMessage(clientId: string) {
+  const admin = await prisma.user.findFirst({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } });
+  if (!admin) return; // pas d'admin en base, rien à envoyer (ne doit pas arriver en usage normal)
+
+  const text =
+    "Bienvenue sur AIFI ! 🎉\n\n" +
+    "Avant de pouvoir demander une aide, ton compte doit être validé. Pour ça, envoie-nous ici, dans ce fil de discussion :\n\n" +
+    "1️⃣ Une photo lisible d'une pièce d'identité (carte d'identité, passeport ou permis)\n" +
+    "2️⃣ Un selfie de toi tenant cette même pièce d'identité à côté de ton visage\n" +
+    "3️⃣ Ton lieu de résidence (quartier + ville)\n\n" +
+    "Dès que c'est reçu et vérifié, ton compte sera activé et tu recevras une notification.";
+
+  await prisma.message.create({
+    data: { clientId, senderId: admin.id, senderRole: "ADMIN", text },
+  });
 }
 
 

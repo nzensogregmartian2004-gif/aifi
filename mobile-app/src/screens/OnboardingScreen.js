@@ -1,13 +1,5 @@
 import React, { useRef, useState } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  StyleSheet,
-  Dimensions,
-  Pressable,
-} from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { View, Text, FlatList, StyleSheet, Dimensions, Pressable, Image } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { PrimaryButton } from "../components/ui";
 import { colors, fonts } from "../theme";
@@ -19,40 +11,40 @@ const { width } = Dimensions.get("window");
 
 const SECTIONS = [
   {
-    icon: "shield-checkmark-outline",
+    image: require("../../assets/onboarding/onb_1_bienvenue.png"),
     title: "Bienvenue sur AIFI",
-    text: "Un cercle d'entraide financière entre personnes de confiance. Tout est validé manuellement par un administrateur.",
+    text: "Ton cercle d'entraide, entre personnes de confiance. Simple, rapide, et automatisé de bout en bout.",
   },
   {
-    icon: "star-outline",
-    title: "Points et confiance",
-    text: "Chaque action positive fait gagner des points. Plus tu en as, plus ton plafond d'aide augmente.",
+    image: require("../../assets/onboarding/onb_2_confiance.png"),
+    title: "Gagne en confiance",
+    text: "Chaque bon comportement te rapporte des points. Plus tu en as, plus ton plafond d'aide grandit.",
   },
   {
-    icon: "cash-outline",
-    title: "Demander une aide",
-    text: "Demande n'importe quel montant sous ton plafond. Un administrateur examine ensuite ta demande.",
+    image: require("../../assets/onboarding/onb_3_avance.png"),
+    title: "Demande en un instant",
+    text: "Choisis un montant sous ton plafond. Une fois ton compte validé, ta demande part directement à l'administrateur.",
   },
   {
-    icon: "repeat-outline",
-    title: "Rembourser",
-    text: "Rembourse hors application (Mobile Money, en main propre...), puis déclare le montant dans l'app.",
+    image: require("../../assets/onboarding/onb_4_rembourser.png"),
+    title: "Remboursement 100% automatique",
+    text: "Plus besoin de sortir de l'app : rembourse par Mobile Money ou carte, en un clic, directement depuis AIFI.",
   },
   {
-    icon: "people-outline",
-    title: "Parrainage",
-    text: "Partage ton code. Quand ton filleul est validé, tu reçois un bonus et une commission sur ses remboursements.",
+    image: require("../../assets/onboarding/onb_5_parrainage.png"),
+    title: "Parraine, gagne plus",
+    text: "Partage ton code. Dès que ton filleul est validé, tu touches un bonus et une commission sur ses remboursements.",
   },
 ];
 
 function Slide({ item }) {
   return (
     <View style={styles.slide}>
-      <View style={styles.iconWrap}>
-        <Ionicons name={item.icon} size={96} color={colors.gold} />
+      <Image source={item.image} style={styles.image} resizeMode="cover" />
+      <View style={styles.textBlock}>
+        <Text style={styles.slideTitle}>{item.title}</Text>
+        <Text style={styles.slideText}>{item.text}</Text>
       </View>
-      <Text style={styles.slideTitle}>{item.title}</Text>
-      <Text style={styles.slideText}>{item.text}</Text>
     </View>
   );
 }
@@ -90,7 +82,6 @@ export default function OnboardingScreen({ navigation }) {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={onScrollEnd}
-        style={{ flexGrow: 0 }}
       />
 
       <View style={styles.dots}>
@@ -106,16 +97,8 @@ export default function OnboardingScreen({ navigation }) {
           <PrimaryButton title="Retour" onPress={() => navigation.goBack()} />
         ) : isLast ? (
           <>
-            <PrimaryButton
-              title="Créer un compte"
-              onPress={() => finish("Register")}
-            />
-            <PrimaryButton
-              title="J'ai déjà un compte"
-              variant="outline"
-              onPress={() => finish("Login")}
-              style={{ marginTop: 10 }}
-            />
+            <PrimaryButton title="Créer un compte" onPress={() => finish("Register")} />
+            <PrimaryButton title="J'ai déjà un compte" variant="outline" onPress={() => finish("Login")} style={{ marginTop: 10 }} />
           </>
         ) : (
           <PrimaryButton title="Suivant" onPress={() => goTo(index + 1)} />
@@ -126,51 +109,13 @@ export default function OnboardingScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  slide: {
-    width,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 32,
-    paddingTop: 70,
-    paddingBottom: 10,
-  },
-  iconWrap: {
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: colors.ink,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 28,
-  },
-  slideTitle: {
-    fontFamily: fonts.display,
-    fontSize: 22,
-    fontWeight: "700",
-    color: colors.ink,
-    textAlign: "center",
-    marginBottom: 10,
-  },
-  slideText: {
-    fontSize: 14,
-    color: colors.inkSoft,
-    textAlign: "center",
-    lineHeight: 20,
-    maxWidth: 300,
-  },
-  dots: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 18,
-  },
-  dot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: colors.line,
-    marginHorizontal: 4,
-  },
+  slide: { width, flex: 1 },
+  image: { width, height: "58%" },
+  textBlock: { flex: 1, paddingHorizontal: 30, paddingTop: 26, alignItems: "center" },
+  slideTitle: { fontFamily: fonts.display, fontSize: 22, fontWeight: "700", color: colors.ink, textAlign: "center", marginBottom: 10 },
+  slideText: { fontSize: 14, color: colors.inkSoft, textAlign: "center", lineHeight: 20, maxWidth: 320 },
+  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 14 },
+  dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.line, marginHorizontal: 4 },
   dotActive: { backgroundColor: colors.gold, width: 20 },
-  footer: { padding: 20, paddingTop: 4 },
+  footer: { paddingHorizontal: 20, paddingBottom: 20 },
 });

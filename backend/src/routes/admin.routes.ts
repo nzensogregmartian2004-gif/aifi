@@ -65,7 +65,10 @@ router.get("/dashboard", async (_req, res) => {
 router.get("/users", async (req, res) => {
   try {
     const { status, q } = req.query as { status?: string; q?: string };
-    const where: any = {};
+    // Cette liste sert à gérer les CLIENTS. Les comptes ADMIN ont leur propre
+    // écran ("Gérer les administrateurs") — on ne veut pas qu'un admin
+    // apparaisse ici et puisse être suspendu par erreur comme un client.
+    const where: any = { role: "CLIENT" };
     if (status) where.status = status;
     if (q) {
       where.OR = [
@@ -142,6 +145,9 @@ router.post("/users/:id/validate", async (req, res) => {
 
 router.post("/users/:id/suspend", async (req, res) => {
   try {
+    if (req.params.id === req.auth!.userId) {
+      return res.status(400).json({ error: "Tu ne peux pas suspendre ton propre compte." });
+    }
     const user = await suspendUser((req.params.id as string), req.auth!.userId);
     res.json(user);
   } catch (err: any) {

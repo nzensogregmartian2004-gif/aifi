@@ -1,15 +1,5 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Pressable,
-  Image,
-} from "react-native";
+import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Pressable, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
 import { PrimaryButton } from "../components/ui";
@@ -37,20 +27,13 @@ export default function LoginScreen({ navigation }) {
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1, backgroundColor: colors.ink }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.ink }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.seal}>
-          <Image
-            source={require("../../assets/adaptive-icon.png")}
-            style={styles.sealImage}
-            resizeMode="contain"
-          />
+          <Image source={require("../../assets/adaptive-icon.png")} style={styles.sealImage} resizeMode="contain" />
         </View>
         <Text style={styles.title}>AIFI</Text>
-        <Text style={styles.subtitle}>Ton cercle d'entraide financière</Text>
+        <Text style={styles.subtitle}>Ton cercle d'entraide</Text>
 
         <View style={styles.card}>
           {!!error && <Text style={styles.error}>{error}</Text>}
@@ -76,25 +59,12 @@ export default function LoginScreen({ navigation }) {
               placeholder="••••••••"
               placeholderTextColor={colors.inkSoft}
             />
-            <Pressable
-              onPress={() => setShowPassword((v) => !v)}
-              style={styles.eyeButton}
-              hitSlop={10}
-            >
-              <Ionicons
-                name={showPassword ? "eye-off-outline" : "eye-outline"}
-                size={20}
-                color={colors.inkSoft}
-              />
+            <Pressable onPress={() => setShowPassword((v) => !v)} style={styles.eyeButton} hitSlop={10}>
+              <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.inkSoft} />
             </Pressable>
           </View>
 
-          <PrimaryButton
-            title="Se connecter"
-            onPress={handleLogin}
-            loading={loading}
-            style={{ marginTop: 8 }}
-          />
+          <PrimaryButton title="Se connecter" onPress={handleLogin} loading={loading} style={{ marginTop: 8 }} />
 
           <PrimaryButton
             title="Créer un compte"
@@ -109,84 +79,25 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-  },
+  container: { flexGrow: 1, alignItems: "center", justifyContent: "center", padding: 24 },
   seal: {
-    width: 84,
-    height: 84,
-    borderRadius: 42,
-    borderWidth: 2,
-    borderColor: colors.gold,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-    backgroundColor: "#fff",
-    overflow: "hidden",
+    width: 84, height: 84, borderRadius: 42, borderWidth: 2, borderColor: colors.gold,
+    alignItems: "center", justifyContent: "center", marginBottom: 14, backgroundColor: "#fff", overflow: "hidden",
   },
   sealImage: { width: 60, height: 60 },
-  title: {
-    fontFamily: fonts.display,
-    fontSize: 30,
-    fontWeight: "700",
-    color: "#fff",
-  },
-  subtitle: {
-    color: "#8895ac",
-    fontSize: 13.5,
-    marginTop: 4,
-    marginBottom: 26,
-  },
-  card: {
-    backgroundColor: colors.paper,
-    borderRadius: 16,
-    padding: 22,
-    width: "100%",
-  },
-  label: {
-    fontSize: 11.5,
-    fontWeight: "700",
-    color: colors.inkSoft,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    marginBottom: 6,
-    marginTop: 12,
-  },
+  title: { fontFamily: fonts.display, fontSize: 30, fontWeight: "700", color: "#fff" },
+  subtitle: { color: "#8895ac", fontSize: 13.5, marginTop: 4, marginBottom: 26 },
+  card: { backgroundColor: colors.paper, borderRadius: 16, padding: 22, width: "100%" },
+  label: { fontSize: 11.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6, marginTop: 12 },
   input: {
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    fontSize: 15,
-    backgroundColor: "#fff",
-    color: colors.ink,
+    borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 11,
+    fontSize: 15, backgroundColor: "#fff", color: colors.ink,
   },
   passwordRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: 8,
-    backgroundColor: "#fff",
+    flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.line,
+    borderRadius: 8, backgroundColor: "#fff",
   },
-  passwordInput: {
-    flex: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    fontSize: 15,
-    color: colors.ink,
-  },
+  passwordInput: { flex: 1, paddingHorizontal: 12, paddingVertical: 11, fontSize: 15, color: colors.ink },
   eyeButton: { paddingHorizontal: 12, paddingVertical: 11 },
-  error: {
-    color: colors.danger,
-    backgroundColor: colors.dangerSoft,
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 4,
-    fontSize: 13,
-  },
+  error: { color: colors.danger, backgroundColor: colors.dangerSoft, padding: 10, borderRadius: 8, marginBottom: 4, fontSize: 13 },
 });

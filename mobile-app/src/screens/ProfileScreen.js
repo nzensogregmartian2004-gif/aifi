@@ -59,6 +59,21 @@ export default function ProfileScreen({ navigation }) {
 
       {isAdmin && (
         <Card>
+          <Text style={styles.cardTitle}>Paramètres</Text>
+          <Text style={styles.sectionText}>
+            Grille de plafonds, taux, durées de remboursement, bonus de parrainage...
+          </Text>
+          <PrimaryButton
+            title="Ouvrir les paramètres"
+            variant="outline"
+            onPress={() => navigation.navigate("AdminSettings")}
+            style={{ marginTop: 12 }}
+          />
+        </Card>
+      )}
+
+      {isAdmin && (
+        <Card>
           <Text style={styles.cardTitle}>Administrateurs</Text>
           <Text style={styles.sectionText}>
             Crée un accès direct côté administration pour une autre personne de confiance.

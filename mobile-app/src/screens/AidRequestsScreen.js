@@ -143,7 +143,7 @@ export default function AidRequestsScreen({ navigation }) {
 
               {canDeclare && (
                 <>
-                  {mypvitAvailable && (
+                  {mypvitAvailable ? (
                     <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                       <PrimaryButton title="Rembourser" onPress={() => openPay(item, "full")} style={{ flex: 1 }} />
                       <PrimaryButton
@@ -153,13 +153,14 @@ export default function AidRequestsScreen({ navigation }) {
                         style={{ flex: 1 }}
                       />
                     </View>
+                  ) : (
+                    <PrimaryButton
+                      title="J'ai remboursé"
+                      variant="outline"
+                      onPress={() => openDeclare(item)}
+                      style={{ marginTop: 10 }}
+                    />
                   )}
-                  <PrimaryButton
-                    title="J'ai remboursé (hors application)"
-                    variant="outline"
-                    onPress={() => openDeclare(item)}
-                    style={{ marginTop: 10 }}
-                  />
                 </>
               )}
             </Card>
