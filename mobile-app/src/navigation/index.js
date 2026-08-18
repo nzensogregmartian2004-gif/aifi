@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
 import { colors } from "../theme";
 import { api } from "../api/client";
@@ -39,6 +40,30 @@ const AdminUsersStack = createNativeStackNavigator();
 const AdminMessagesStack = createNativeStackNavigator();
 const AdminHomeStack = createNativeStackNavigator();
 const AdminTab = createBottomTabNavigator();
+
+const ADMIN_TAB_ICONS = {
+  AdminAccueil: "home-outline",
+  AdminAides: "cash-outline",
+  AdminDepot: "arrow-down-circle-outline",
+  AdminRetraits: "arrow-up-circle-outline",
+  AdminUtilisateurs: "people-outline",
+  AdminMessages: "chatbubbles-outline",
+  AdminProfil: "person-circle-outline",
+};
+
+const CLIENT_TAB_ICONS = {
+  Accueil: "home-outline",
+  Aides: "cash-outline",
+  Portefeuille: "wallet-outline",
+  Parrainage: "people-outline",
+  Messages: "chatbubbles-outline",
+  Notifications: "notifications-outline",
+  Profil: "person-circle-outline",
+};
+
+function makeTabBarIcon(iconName) {
+  return ({ color, size }) => <Ionicons name={iconName} size={size} color={color} />;
+}
 
 function AidNavigator() {
   return (
@@ -89,13 +114,41 @@ function AdminTabs() {
         tabBarLabelStyle: { fontSize: 10.5, fontWeight: "600" },
       }}
     >
-      <AdminTab.Screen name="AdminAccueil" component={AdminHomeNavigator} options={{ tabBarLabel: "Accueil" }} />
-      <AdminTab.Screen name="AdminAides" component={AdminAidRequestsScreen} options={{ tabBarLabel: "Aides" }} />
-      <AdminTab.Screen name="AdminDepot" component={AdminQuickDepositScreen} options={{ tabBarLabel: "Dépôt" }} />
-      <AdminTab.Screen name="AdminRetraits" component={AdminWithdrawalsScreen} options={{ tabBarLabel: "Retraits" }} />
-      <AdminTab.Screen name="AdminUtilisateurs" component={AdminUsersNavigator} options={{ tabBarLabel: "Clients" }} />
-      <AdminTab.Screen name="AdminMessages" component={AdminMessagesNavigator} options={{ tabBarLabel: "Messages" }} />
-      <AdminTab.Screen name="AdminProfil" component={ProfileScreen} options={{ tabBarLabel: "Profil" }} />
+      <AdminTab.Screen
+        name="AdminAccueil"
+        component={AdminHomeNavigator}
+        options={{ tabBarLabel: "Accueil", tabBarIcon: makeTabBarIcon(ADMIN_TAB_ICONS.AdminAccueil) }}
+      />
+      <AdminTab.Screen
+        name="AdminAides"
+        component={AdminAidRequestsScreen}
+        options={{ tabBarLabel: "Aides", tabBarIcon: makeTabBarIcon(ADMIN_TAB_ICONS.AdminAides) }}
+      />
+      <AdminTab.Screen
+        name="AdminDepot"
+        component={AdminQuickDepositScreen}
+        options={{ tabBarLabel: "Dépôt", tabBarIcon: makeTabBarIcon(ADMIN_TAB_ICONS.AdminDepot) }}
+      />
+      <AdminTab.Screen
+        name="AdminRetraits"
+        component={AdminWithdrawalsScreen}
+        options={{ tabBarLabel: "Retraits", tabBarIcon: makeTabBarIcon(ADMIN_TAB_ICONS.AdminRetraits) }}
+      />
+      <AdminTab.Screen
+        name="AdminUtilisateurs"
+        component={AdminUsersNavigator}
+        options={{ tabBarLabel: "Clients", tabBarIcon: makeTabBarIcon(ADMIN_TAB_ICONS.AdminUtilisateurs) }}
+      />
+      <AdminTab.Screen
+        name="AdminMessages"
+        component={AdminMessagesNavigator}
+        options={{ tabBarLabel: "Messages", tabBarIcon: makeTabBarIcon(ADMIN_TAB_ICONS.AdminMessages) }}
+      />
+      <AdminTab.Screen
+        name="AdminProfil"
+        component={ProfileScreen}
+        options={{ tabBarLabel: "Profil", tabBarIcon: makeTabBarIcon(ADMIN_TAB_ICONS.AdminProfil) }}
+      />
     </AdminTab.Navigator>
   );
 }
@@ -136,17 +189,17 @@ function MainTabs() {
         },
       }}
     >
-      <Tab.Screen name="Accueil" component={DashboardScreen} />
-      <Tab.Screen name="Aides" component={AidNavigator} />
-      <Tab.Screen name="Portefeuille" component={WalletScreen} />
-      <Tab.Screen name="Parrainage" component={ReferralsScreen} />
-      <Tab.Screen name="Messages" component={MessagesScreen} />
+      <Tab.Screen name="Accueil" component={DashboardScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Accueil) }} />
+      <Tab.Screen name="Aides" component={AidNavigator} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Aides) }} />
+      <Tab.Screen name="Portefeuille" component={WalletScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Portefeuille) }} />
+      <Tab.Screen name="Parrainage" component={ReferralsScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Parrainage) }} />
+      <Tab.Screen name="Messages" component={MessagesScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Messages) }} />
       <Tab.Screen
         name="Notifications"
         component={NotificationsScreen}
-        options={{ tabBarBadge: unread > 0 ? unread : undefined }}
+        options={{ tabBarBadge: unread > 0 ? unread : undefined, tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Notifications) }}
       />
-      <Tab.Screen name="Profil" component={ProfileScreen} />
+      <Tab.Screen name="Profil" component={ProfileScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Profil) }} />
     </Tab.Navigator>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, TextInput, StyleSheet, Alert } from "react-native";
+import { View, Text, TextInput, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { api, apiErrorMessage } from "../api/client";
 import { Card, ScreenTitle, PrimaryButton } from "../components/ui";
@@ -38,32 +38,34 @@ export default function NewAidRequestScreen({ navigation }) {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.paper, padding: 20, paddingTop: 60 }}>
-      <ScreenTitle subtitle="Le montant demandé ne peut pas dépasser ton plafond disponible.">
-        Nouvelle demande d'aide
-      </ScreenTitle>
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.paper }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 40 }}>
+        <ScreenTitle subtitle="Le montant demandé ne peut pas dépasser ton plafond disponible.">
+          Nouvelle demande d'aide
+        </ScreenTitle>
 
-      {available !== null && (
-        <Card>
-          <Text style={styles.label}>Plafond disponible</Text>
-          <Text style={styles.available}>{money(available)} FCFA</Text>
-        </Card>
-      )}
+        {available !== null && (
+          <Card>
+            <Text style={styles.label}>Plafond disponible</Text>
+            <Text style={styles.available}>{money(available)} FCFA</Text>
+          </Card>
+        )}
 
-      {!!error && <Card><Text style={{ color: colors.danger }}>{error}</Text></Card>}
+        {!!error && <Card><Text style={{ color: colors.danger }}>{error}</Text></Card>}
 
-      <Text style={styles.label}>Montant demandé (FCFA)</Text>
-      <TextInput
-        style={styles.input}
-        value={amount}
-        onChangeText={setAmount}
-        keyboardType="numeric"
-        placeholder="ex : 2000"
-        placeholderTextColor={colors.inkSoft}
-      />
+        <Text style={styles.label}>Montant demandé (FCFA)</Text>
+        <TextInput
+          style={styles.input}
+          value={amount}
+          onChangeText={setAmount}
+          keyboardType="numeric"
+          placeholder="ex : 2000"
+          placeholderTextColor={colors.inkSoft}
+        />
 
-      <PrimaryButton title="Envoyer la demande" onPress={submit} loading={loading} style={{ marginTop: 20 }} />
-    </View>
+        <PrimaryButton title="Envoyer la demande" onPress={submit} loading={loading} style={{ marginTop: 20 }} />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

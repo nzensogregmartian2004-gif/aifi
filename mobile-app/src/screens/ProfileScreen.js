@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, StyleSheet, Alert } from "react-native";
+import { View, Text, TextInput, StyleSheet, Alert, ScrollView } from "react-native";
 import { api, apiErrorMessage } from "../api/client";
 import { Card, ScreenTitle, PrimaryButton } from "../components/ui";
 import { colors } from "../theme";
@@ -38,23 +38,24 @@ export default function ProfileScreen({ navigation }) {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.paper, padding: 20, paddingTop: 60 }}>
+    <ScrollView
+      style={{ flex: 1, backgroundColor: colors.paper }}
+      contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 40 }}
+    >
       <ScreenTitle subtitle="Sécurité de ton compte">Mon profil</ScreenTitle>
 
-      {!isAdmin && (
-        <Card>
-          <Text style={styles.cardTitle}>Comment fonctionne AIFI ?</Text>
-          <Text style={styles.sectionText}>
-            Points, plafonds, demandes d'aide, remboursement, parrainage... Retrouve les explications à tout moment.
-          </Text>
-          <PrimaryButton
-            title="Revoir les explications"
-            variant="outline"
-            onPress={() => navigation.navigate("Onboarding")}
-            style={{ marginTop: 12 }}
-          />
-        </Card>
-      )}
+      <Card>
+        <Text style={styles.cardTitle}>Comment fonctionne AIFI ?</Text>
+        <Text style={styles.sectionText}>
+          Points, plafonds, demandes d'aide, remboursement, parrainage... Retrouve les explications à tout moment.
+        </Text>
+        <PrimaryButton
+          title="Revoir les explications"
+          variant="outline"
+          onPress={() => navigation.navigate("Onboarding")}
+          style={{ marginTop: 12 }}
+        />
+      </Card>
 
       {isAdmin && (
         <Card>
@@ -115,7 +116,7 @@ export default function ProfileScreen({ navigation }) {
       </Text>
 
       <PrimaryButton title="Se déconnecter" onPress={logout} variant="outline" style={{ marginTop: 24 }} />
-    </View>
+    </ScrollView>
   );
 }
 
