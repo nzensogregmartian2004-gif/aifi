@@ -2,6 +2,7 @@ import { prisma } from "../../db/client";
 import { getWalletBalance } from "./wallet.service";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
 import { logAction } from "../audit/audit.service";
+import { giveChange, generateDisbursementReference } from "../payments/mypvit.client";
 
 export async function requestWithdrawal(userId: string, amount: number) {
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
@@ -82,6 +83,94 @@ export async function approveWithdrawal(withdrawalId: string, adminId: string, p
   );
 
   return result;
+}
+
+/**
+ * Approuve et envoie un retrait automatiquement via MyPVit (GIVE_CHANGE,
+ * synchrone). Même logique de re-vérification du solde qu'en approbation
+ * manuelle. En cas d'échec, le retrait reste PENDING — l'admin peut réessayer
+ * ou basculer sur l'envoi manuel (approveWithdrawal ci-dessus).
+ */
+export async function approveWithdrawalViaMypvit(
+  withdrawalId: string,
+  adminId: string,
+  operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY"
+) {
+  const withdrawal = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId }, include: { user: true } });
+  if (withdrawal.status !== "PENDING") {
+    throw new Error(`Ce retrait a déjà été traité (statut actuel : ${withdrawal.status})`);
+  }
+
+  const balance = await getWalletBalance(withdrawal.userId);
+  if (withdrawal.amount > balance) {
+    throw new Error(`Solde insuffisant (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA).`);
+  }
+
+  const reference = generateDisbursementReference();
+  const transaction = await prisma.paymentTransaction.create({
+    data: {
+      reference,
+      userId: withdrawal.userId,
+      amount: withdrawal.amount,
+      operator: operatorCode,
+      status: "PENDING",
+    },
+  });
+
+  let result;
+  try {
+    result = await giveChange({
+      amount: withdrawal.amount,
+      phone: withdrawal.user.phone,
+      reference,
+      operatorCode,
+      freeInfo: `Retrait AIFI ${withdrawal.id}`,
+    });
+  } catch (err: any) {
+    await prisma.paymentTransaction.update({
+      where: { id: transaction.id },
+      data: { status: "FAILED", rawInitResponse: { error: err.message } },
+    });
+    throw new Error(`Le retrait automatique a échoué : ${err.message}`);
+  }
+
+  const success = result.status === "SUCCESS";
+  await prisma.paymentTransaction.update({
+    where: { id: transaction.id },
+    data: { status: success ? "SUCCESS" : "FAILED", providerTransactionId: result.reference_id, rawInitResponse: result as any },
+  });
+
+  if (!success) {
+    throw new Error(result.message || "Le retrait a été refusé par l'opérateur.");
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const fresh = await tx.withdrawal.update({
+      where: { id: withdrawalId },
+      data: { status: "APPROVED" },
+    });
+    await tx.walletEntry.create({
+      data: { userId: withdrawal.userId, amount: -withdrawal.amount, reason: "withdrawal_approved" },
+    });
+    return fresh;
+  });
+
+  await logAction({
+    adminId,
+    action: "withdrawal_approve_auto",
+    entityType: "Withdrawal",
+    entityId: withdrawalId,
+    before: { status: "PENDING" },
+    after: { status: "APPROVED", amount: updated.amount, reference, operator: operatorCode },
+  });
+
+  await notifyUser(
+    updated.userId,
+    "withdrawal_approved",
+    `Votre retrait de ${updated.amount} FCFA a été envoyé automatiquement sur votre compte ${operatorCode === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}.`
+  );
+
+  return updated;
 }
 
 export async function rejectWithdrawal(withdrawalId: string, adminId: string) {

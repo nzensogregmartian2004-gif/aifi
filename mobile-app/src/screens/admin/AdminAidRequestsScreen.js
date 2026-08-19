@@ -25,6 +25,9 @@ export default function AdminAidRequestsScreen() {
   const [depositTarget, setDepositTarget] = useState(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [depositProof, setDepositProof] = useState(null);
+  const [disburseTarget, setDisburseTarget] = useState(null);
+  const [disburseOperator, setDisburseOperator] = useState("AIRTEL_MONEY");
+  const [mypvitAvailable, setMypvitAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -37,6 +40,7 @@ export default function AdminAidRequestsScreen() {
       setError(apiErrorMessage(err));
     }
     api.get("/admin/settings/durations").then(({ data }) => setDurations(data)).catch(() => {});
+    api.get("/admin/payments/config").then(({ data }) => setMypvitAvailable(data.available)).catch(() => setMypvitAvailable(false));
   }, [filter]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -74,13 +78,36 @@ export default function AdminAidRequestsScreen() {
     }
   }
 
-  async function disburse(item) {
+  async function openDisburse(item) {
+    setDisburseTarget(item);
+    setDisburseOperator(null); // pas de présélection — l'admin choisit explicitement
+    setFormError("");
+  }
+
+  async function disburseAuto() {
+    if (!disburseOperator) return setFormError("Choisis un opérateur.");
     setBusy(true);
+    setFormError("");
     try {
-      await api.post(`/admin/aid-requests/${item.id}/disburse`);
+      await api.post(`/admin/aid-requests/${disburseTarget.id}/disburse-mypvit`, { operatorCode: disburseOperator });
+      setDisburseTarget(null);
       load();
     } catch (err) {
-      setError(apiErrorMessage(err));
+      setFormError(apiErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function disburseManual() {
+    setBusy(true);
+    setFormError("");
+    try {
+      await api.post(`/admin/aid-requests/${disburseTarget.id}/disburse`);
+      setDisburseTarget(null);
+      load();
+    } catch (err) {
+      setFormError(apiErrorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -176,7 +203,7 @@ export default function AdminAidRequestsScreen() {
                   </>
                 )}
                 {item.status === "ACCEPTED" && (
-                  <PrimaryButton title="Envoyer les fonds" onPress={() => disburse(item)} style={styles.smallBtn} />
+                  <PrimaryButton title="Envoyer les fonds" onPress={() => openDisburse(item)} style={styles.smallBtn} />
                 )}
                 {["DISBURSED", "LATE"].includes(item.status) && (
                   <PrimaryButton title="Enregistrer un dépôt" onPress={() => openDeposit(item)} style={styles.smallBtn} />
@@ -243,6 +270,48 @@ export default function AdminAidRequestsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Modal envoi des fonds : automatique MyPVit ou manuel */}
+      <Modal visible={!!disburseTarget} transparent animationType="fade" onRequestClose={() => setDisburseTarget(null)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Envoyer les fonds</Text>
+            <Text style={{ color: colors.inkSoft, marginBottom: 14 }}>
+              {disburseTarget?.user?.name} — {money(disburseTarget?.amount)} FCFA
+            </Text>
+
+            {mypvitAvailable && (
+              <>
+                <Text style={styles.fieldLabel}>Opérateur (envoi automatique)</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+                  {[{ code: "AIRTEL_MONEY", label: "Airtel Money" }, { code: "MOOV_MONEY", label: "Moov Money" }].map((op) => (
+                    <TouchableOpacity
+                      key={op.code}
+                      onPress={() => setDisburseOperator(op.code)}
+                      style={[styles.chip, disburseOperator === op.code && styles.chipActive]}
+                    >
+                      <Text style={[styles.chipText, disburseOperator === op.code && styles.chipTextActive]}>{op.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {!!formError && <Text style={{ color: colors.danger, marginTop: 8 }}>{formError}</Text>}
+                <PrimaryButton title="Envoyer automatiquement" onPress={disburseAuto} loading={busy} style={{ marginTop: 14 }} />
+                <Text style={styles.orDivider}>— ou —</Text>
+              </>
+            )}
+
+            <PrimaryButton
+              title="J'ai envoyé l'argent moi-même"
+              variant="outline"
+              onPress={disburseManual}
+              loading={busy}
+            />
+            {!mypvitAvailable && !!formError && <Text style={{ color: colors.danger, marginTop: 10 }}>{formError}</Text>}
+
+            <PrimaryButton title="Annuler" variant="outline" onPress={() => setDisburseTarget(null)} style={{ marginTop: 10 }} />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -259,6 +328,8 @@ const styles = StyleSheet.create({
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 24 },
   modalCard: { backgroundColor: colors.card, borderRadius: 18, padding: 20 },
   modalTitle: { fontSize: 17, fontWeight: "800", marginBottom: 4 },
+  fieldLabel: { fontSize: 11.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", marginBottom: 8 },
+  orDivider: { textAlign: "center", color: colors.inkSoft, fontSize: 12, marginVertical: 12 },
   input: {
     borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 12, fontSize: 15,
     marginBottom: 10, backgroundColor: colors.paper,

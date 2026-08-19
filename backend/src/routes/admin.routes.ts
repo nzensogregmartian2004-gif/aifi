@@ -4,9 +4,9 @@ import { requireAdmin } from "../middleware/requireAdmin";
 import { recordRepayment, confirmRepaymentDeclaration, rejectRepaymentDeclaration } from "../modules/repayments/repayment.service";
 import { addPoints } from "../modules/points/points.service";
 import { creditWallet } from "../modules/wallet/wallet.service";
-import { approveWithdrawal, rejectWithdrawal } from "../modules/wallet/withdrawal.service";
+import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal } from "../modules/wallet/withdrawal.service";
 import { getAdminDashboard } from "../modules/dashboard/admin-dashboard.service";
-import { acceptAidRequest, rejectAidRequest, disburseAidRequest } from "../modules/aid-requests/aid-request.service";
+import { acceptAidRequest, rejectAidRequest, disburseAidRequest, disburseAidRequestViaMypvit, suggestDisbursementOperator } from "../modules/aid-requests/aid-request.service";
 import { suspendUser, reactivateUser, updateUserInfo, anonymizeUser } from "../modules/users/admin-user.service";
 import { register, adminResetPassword } from "../modules/users/auth.controller";
 import { notifyUser } from "../modules/notifications/notification.service";
@@ -15,6 +15,7 @@ import { sendAdminMessage, getThread, markThreadRead, listConversationsForAdmin 
 import settingsRouter from "./admin.settings.routes";
 import { prisma } from "../db/client";
 import { getOperators, checkKyc } from "../modules/payments/mypvit.client";
+import { isMypvitConfigured } from "../config/env";
 import { validateBody } from "../middleware/validate";
 import {
   adminCreateUserSchema,
@@ -243,6 +244,30 @@ router.post("/aid-requests/:id/disburse", async (req, res) => {
   }
 });
 
+router.get("/payments/config", async (_req, res) => {
+  res.json({ available: isMypvitConfigured() });
+});
+
+router.get("/aid-requests/:id/suggested-operator", async (req, res) => {
+  try {
+    const operator = await suggestDisbursementOperator(req.params.id as string);
+    res.json({ operator });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/aid-requests/:id/disburse-mypvit", async (req, res) => {
+  try {
+    const { operatorCode } = req.body as { operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY" };
+    if (!operatorCode) throw new Error("operatorCode est requis");
+    const result = await disburseAidRequestViaMypvit((req.params.id as string), req.auth!.userId, operatorCode);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post("/aid-requests/:id/repayments", validateBody(recordRepaymentSchema), async (req, res) => {
   try {
     const { amount, proofImageUrl } = req.body;
@@ -339,6 +364,17 @@ router.post("/withdrawals/:id/approve", validateBody(approveWithdrawalSchema), a
   try {
     const { proofImageUrl } = req.body;
     const withdrawal = await approveWithdrawal((req.params.id as string), req.auth!.userId, proofImageUrl);
+    res.json(withdrawal);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/withdrawals/:id/approve-mypvit", async (req, res) => {
+  try {
+    const { operatorCode } = req.body as { operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY" };
+    if (!operatorCode) throw new Error("operatorCode est requis");
+    const withdrawal = await approveWithdrawalViaMypvit((req.params.id as string), req.auth!.userId, operatorCode);
     res.json(withdrawal);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
