@@ -3,12 +3,12 @@ import { env, isMypvitConfigured } from "../../config/env";
 /**
  * Client pour l'API MyPVit (https://docs.mypvit.pro).
  *
- * Ce module ne gère QUE l'encaissement (le client paie le marchand) — c'est le
- * seul flux documenté publiquement par MyPVit au moment de cette intégration.
- * L'envoi de fonds (aide accordée, retrait) reste manuel côté admin : je n'ai
- * pas de documentation fiable sur une éventuelle API de paiement sortant, et
- * deviner les paramètres d'un appel qui fait sortir de l'argent réel serait
- * dangereux. À revoir si MyPVit fournit cette référence plus tard.
+ * Deux flux d'argent sont couverts, tous deux confirmés par la documentation
+ * officielle :
+ *  - initiatePayment  : le client paie le marchand (PAYMENT, asynchrone, statut
+ *    final par webhook).
+ *  - giveChange       : le marchand reverse de l'argent au client (GIVE_CHANGE,
+ *    synchrone, statut final directement dans la réponse — pas de webhook).
  */
 
 let cachedSecret: { value: string; expiresAt: number } | null = null;
@@ -140,6 +140,83 @@ export function generatePaymentReference(): string {
   const base36Time = Date.now().toString(36).slice(-6);
   const rand = Math.random().toString(36).slice(2, 6);
   return `R${base36Time}${rand}`.slice(0, 13).toUpperCase();
+}
+
+/**
+ * Génère une référence pour un décaissement (préfixe "G" pour give_change).
+ */
+export function generateDisbursementReference(): string {
+  const base36Time = Date.now().toString(36).slice(-6);
+  const rand = Math.random().toString(36).slice(2, 6);
+  return `G${base36Time}${rand}`.slice(0, 13).toUpperCase();
+}
+
+interface GiveChangeParams {
+  amount: number;
+  phone: string;
+  reference: string; // max 13 caractères, garantit l'idempotence
+  operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY";
+  freeInfo: string;
+  agent?: string;
+}
+
+interface GiveChangeResponse {
+  status: "SUCCESS" | "FAILED" | string;
+  status_code: string;
+  operator: string;
+  reference_id: string;
+  merchant_reference_id: string;
+  merchant_operation_account_code: string;
+  message: string;
+}
+
+/**
+ * Reverse de l'argent du compte marchand vers un client (GIVE_CHANGE).
+ * Contrairement à initiatePayment, cette opération est SYNCHRONE : la réponse
+ * contient directement le statut final (SUCCESS/FAILED), sans webhook.
+ * `owner_charge: "MERCHANT"` — le marchand supporte les frais, pour que le
+ * client reçoive bien le montant plein annoncé.
+ */
+export async function giveChange(params: GiveChangeParams, retry = true): Promise<GiveChangeResponse> {
+  const secret = await getSecret();
+  const url = `${env.mypvit.baseUrl}/v2/${env.mypvit.urlCodes.rest}/rest`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "X-Secret": secret,
+      "X-Callback-MediaType": "application/json",
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      agent: params.agent || "AIFI-APP",
+      amount: params.amount,
+      product: "AIFI",
+      reference: params.reference,
+      service: "RESTFUL",
+      customer_account_number: params.phone,
+      merchant_operation_account_code: env.mypvit.merchantOperationAccountCode,
+      transaction_type: "GIVE_CHANGE",
+      owner_charge: "MERCHANT",
+      owner_charge_operator: "CUSTOMER",
+      free_info: params.freeInfo,
+      operator_code: params.operatorCode,
+    }),
+  });
+
+  if (res.status === 401 && retry) {
+    await getSecret(true);
+    return giveChange(params, false);
+  }
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok || !data) {
+    throw new Error(`MyPVit a refusé le décaissement (${res.status}): ${JSON.stringify(data)}`);
+  }
+
+  return data as GiveChangeResponse;
 }
 
 /**

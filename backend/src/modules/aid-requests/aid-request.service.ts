@@ -1,6 +1,7 @@
 import { prisma } from "../../db/client";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
 import { logAction } from "../audit/audit.service";
+import { giveChange, generateDisbursementReference, detectOperator } from "../payments/mypvit.client";
 
 export async function getAvailableCeiling(userId: string): Promise<number> {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -140,4 +141,87 @@ export async function disburseAidRequest(id: string, adminId: string) {
   );
 
   return request;
+}
+
+/**
+ * Décaissement automatique via MyPVit (GIVE_CHANGE, synchrone : le statut
+ * final est dans la réponse, pas besoin d'attendre un webhook). En cas
+ * d'échec, la demande reste "ACCEPTED" — l'admin peut réessayer ou basculer
+ * sur l'envoi manuel (disburseAidRequest ci-dessus).
+ */
+export async function disburseAidRequestViaMypvit(
+  id: string,
+  adminId: string,
+  operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY"
+) {
+  const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id }, include: { user: true } });
+  if (existing.status !== "ACCEPTED") {
+    throw new Error(`Impossible d'envoyer les fonds : statut actuel "${existing.status}" (doit être ACCEPTED)`);
+  }
+
+  const reference = generateDisbursementReference();
+
+  const transaction = await prisma.paymentTransaction.create({
+    data: {
+      reference,
+      userId: existing.userId,
+      aidRequestId: existing.id,
+      amount: existing.amount,
+      operator: operatorCode,
+      status: "PENDING",
+    },
+  });
+
+  let result;
+  try {
+    result = await giveChange({
+      amount: existing.amount,
+      phone: existing.user.phone,
+      reference,
+      operatorCode,
+      freeInfo: `Décaissement aide AIFI ${existing.id}`,
+    });
+  } catch (err: any) {
+    await prisma.paymentTransaction.update({
+      where: { id: transaction.id },
+      data: { status: "FAILED", rawInitResponse: { error: err.message } },
+    });
+    throw new Error(`Le décaissement automatique a échoué : ${err.message}`);
+  }
+
+  const success = result.status === "SUCCESS";
+  await prisma.paymentTransaction.update({
+    where: { id: transaction.id },
+    data: { status: success ? "SUCCESS" : "FAILED", providerTransactionId: result.reference_id, rawInitResponse: result as any },
+  });
+
+  if (!success) {
+    throw new Error(result.message || "Le décaissement a été refusé par l'opérateur.");
+  }
+
+  const request = await prisma.aidRequest.update({ where: { id }, data: { status: "DISBURSED" } });
+
+  await logAction({
+    adminId,
+    action: "aid_request_disburse_auto",
+    entityType: "AidRequest",
+    entityId: id,
+    before: { status: existing.status },
+    after: { status: request.status, reference, operator: operatorCode },
+  });
+
+  await notifyUser(
+    request.userId,
+    "aid_request_disbursed",
+    `Les fonds de votre demande de ${request.amount} FCFA ont été envoyés automatiquement sur ton compte ${operatorCode === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}.`,
+    request.id
+  );
+
+  return request;
+}
+
+/** Suggestion d'opérateur basée sur le numéro du client — l'admin peut la corriger. */
+export async function suggestDisbursementOperator(id: string): Promise<"AIRTEL_MONEY" | "MOOV_MONEY" | null> {
+  const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id }, include: { user: true } });
+  return detectOperator(existing.user.phone);
 }
