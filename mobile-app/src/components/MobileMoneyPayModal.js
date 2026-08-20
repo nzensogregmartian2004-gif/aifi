@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, Text, TextInput, Modal, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
 import { api, apiErrorMessage } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import { PrimaryButton } from "./ui";
 import { colors, money } from "../theme";
 
@@ -27,10 +28,12 @@ export default function MobileMoneyPayModal({
   visible, aidRequest, remaining, mode = "full", minRepaymentAmount,
   onClose, onDone, onFallbackManual,
 }) {
+  const { user } = useAuth();
   const [operator, setOperator] = useState("AIRTEL_MONEY");
   const [amount, setAmount] = useState("");
   const [stage, setStage] = useState("form"); // form | pending | success | failed
   const [error, setError] = useState("");
+  const [confirmedAt, setConfirmedAt] = useState(null);
   const pollRef = useRef(null);
   const timeoutRef = useRef(null);
 
@@ -80,6 +83,7 @@ export default function MobileMoneyPayModal({
         if (data.status === "SUCCESS") {
           clearInterval(pollRef.current);
           clearTimeout(timeoutRef.current);
+          setConfirmedAt(new Date());
           setStage("success");
           onDone?.(true);
         } else if (data.status === "FAILED") {
@@ -188,9 +192,49 @@ export default function MobileMoneyPayModal({
 
           {stage === "success" && (
             <View style={{ alignItems: "center", paddingVertical: 10 }}>
-              <Text style={{ fontSize: 40 }}>✓</Text>
-              <Text style={[styles.title, { textAlign: "center", color: colors.success }]}>Paiement confirmé</Text>
-              <PrimaryButton title="Fermer" onPress={close} style={{ marginTop: 16, width: "100%" }} />
+              <View style={styles.successBadge}>
+                <Text style={{ fontSize: 34, color: "#fff" }}>✓</Text>
+              </View>
+              <Text style={[styles.title, { textAlign: "center", color: colors.success, marginTop: 14 }]}>
+                {isPartial ? "Avance confirmée" : "Remboursement confirmé"}
+              </Text>
+              <Text style={[styles.subtitle, { textAlign: "center", marginBottom: 4 }]}>
+                {isPartial
+                  ? "Ton avance a bien été reçue et déduite de ce que tu dois."
+                  : "Ton solde est réglé, merci !"}
+              </Text>
+
+              <View style={styles.receiptBox}>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Montant</Text>
+                  <Text style={styles.receiptValue}>{money(effectiveAmount)} FCFA</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Opérateur</Text>
+                  <Text style={styles.receiptValue}>{OPERATORS.find((o) => o.code === operator)?.label}</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Compte</Text>
+                  <Text style={styles.receiptValue}>{user?.phone}</Text>
+                </View>
+                <View style={styles.receiptRow}>
+                  <Text style={styles.receiptLabel}>Date</Text>
+                  <Text style={styles.receiptValue}>
+                    {confirmedAt?.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })} à{" "}
+                    {confirmedAt?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
+                  </Text>
+                </View>
+                {remaining != null && (
+                  <View style={[styles.receiptRow, { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10, marginTop: 4 }]}>
+                    <Text style={styles.receiptLabel}>Reste dû après cette opération</Text>
+                    <Text style={[styles.receiptValue, { fontWeight: "800" }]}>
+                      {money(Math.max(0, remaining - Number(effectiveAmount || 0)))} FCFA
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <PrimaryButton title="Fermer" onPress={close} style={{ marginTop: 18, width: "100%" }} />
             </View>
           )}
 
@@ -249,4 +293,14 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 12, fontSize: 15,
     backgroundColor: colors.paper, marginBottom: 4,
   },
+  successBadge: {
+    width: 64, height: 64, borderRadius: 32, backgroundColor: colors.success,
+    alignItems: "center", justifyContent: "center",
+  },
+  receiptBox: {
+    width: "100%", backgroundColor: colors.paper, borderRadius: 12, padding: 14, marginTop: 16,
+  },
+  receiptRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 },
+  receiptLabel: { fontSize: 12.5, color: colors.inkSoft },
+  receiptValue: { fontSize: 13, color: colors.ink, fontWeight: "600", textAlign: "right", flexShrink: 1, marginLeft: 10 },
 });

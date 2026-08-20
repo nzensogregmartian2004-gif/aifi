@@ -37,8 +37,13 @@ export async function requestAid(userId: string, amount: number) {
     throw new Error(`Montant demandé (${amount}) dépasse le plafond disponible (${available})`);
   }
 
+  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+  // Le taux est figé à la date de la demande : le modifier plus tard dans les
+  // paramètres n'affecte jamais les demandes déjà créées.
+  const amountDue = Math.round(amount * (1 + settings.serviceFeePercent / 100));
+
   const request = await prisma.aidRequest.create({
-    data: { userId, amount, status: "PENDING" },
+    data: { userId, amount, amountDue, status: "PENDING" },
   });
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });

@@ -65,7 +65,7 @@ export default function AidRequestsScreen({ navigation }) {
       return;
     }
     const repaid = declareTarget.repayments.reduce((s, r) => s + r.amount, 0);
-    const remaining = declareTarget.amount - repaid;
+    const remaining = declareTarget.amountDue - repaid;
     const isFinalPayment = value === remaining;
     if (!isFinalPayment && minRepaymentAmount && value < minRepaymentAmount) {
       setFormError(
@@ -90,7 +90,7 @@ export default function AidRequestsScreen({ navigation }) {
   }
 
   const payTargetRemaining = payTarget
-    ? payTarget.amount - payTarget.repayments.reduce((s, r) => s + r.amount, 0)
+    ? payTarget.amountDue - payTarget.repayments.reduce((s, r) => s + r.amount, 0)
     : null;
 
   return (
@@ -109,7 +109,7 @@ export default function AidRequestsScreen({ navigation }) {
         ListEmptyComponent={<EmptyState text="Tu n'as encore fait aucune demande d'aide." />}
         renderItem={({ item }) => {
           const repaid = item.repayments.reduce((s, r) => s + r.amount, 0);
-          const remaining = item.amount - repaid;
+          const remaining = item.amountDue - repaid;
           const pendingDeclaration = (item.repaymentDeclarations || []).find((d) => d.status === "PENDING");
           const canDeclare = REPAYABLE_STATUSES.includes(item.status) && !pendingDeclaration;
           return (
@@ -118,13 +118,16 @@ export default function AidRequestsScreen({ navigation }) {
                 <Text style={{ fontSize: 19, fontWeight: "700", color: colors.ink }}>{money(item.amount)} FCFA</Text>
                 <Badge status={item.status} />
               </View>
+              {item.amountDue !== item.amount && (
+                <Text style={styles.meta}>Total à rembourser (frais inclus) : {money(item.amountDue)} FCFA</Text>
+              )}
               {item.dueDate && (
                 <Text style={styles.meta}>
                   Échéance : {new Date(item.dueDate).toLocaleDateString("fr-FR")}
                 </Text>
               )}
               {repaid > 0 && (
-                <Text style={styles.meta}>Remboursé : {money(repaid)} / {money(item.amount)} FCFA</Text>
+                <Text style={styles.meta}>Remboursé : {money(repaid)} / {money(item.amountDue)} FCFA</Text>
               )}
               {canDeclare && (
                 <View style={styles.remainingBadge}>
@@ -174,7 +177,14 @@ export default function AidRequestsScreen({ navigation }) {
             <Text style={{ fontSize: 18, fontWeight: "700", color: colors.ink, marginBottom: 4 }}>
               Déclarer un remboursement
             </Text>
-            <Text style={{ fontSize: 13, color: colors.inkSoft, marginBottom: 16 }}>
+            {declareTarget && (
+              <View style={styles.remainingBadge}>
+                <Text style={styles.remainingBadgeText}>
+                  Reste dû : {money(declareTarget.amountDue - declareTarget.repayments.reduce((s, r) => s + r.amount, 0))} FCFA
+                </Text>
+              </View>
+            )}
+            <Text style={{ fontSize: 13, color: colors.inkSoft, marginTop: 10, marginBottom: 16 }}>
               Indique le montant que tu as envoyé à l'administrateur (Mobile Money, en main propre, etc.). Il devra le
               confirmer après vérification.
               {minRepaymentAmount ? ` Minimum ${minRepaymentAmount} FCFA par avance, sauf pour solder complètement.` : ""}
@@ -190,6 +200,16 @@ export default function AidRequestsScreen({ navigation }) {
               onChangeText={setAmount}
               placeholder="Ex: 1500"
             />
+            {declareTarget && (
+              <PrimaryButton
+                title={`Remplir avec le solde (${money(declareTarget.amountDue - declareTarget.repayments.reduce((s, r) => s + r.amount, 0))} FCFA)`}
+                variant="outline"
+                onPress={() =>
+                  setAmount(String(declareTarget.amountDue - declareTarget.repayments.reduce((s, r) => s + r.amount, 0)))
+                }
+                style={{ marginTop: 8 }}
+              />
+            )}
 
             <Text style={styles.label}>Note (optionnel)</Text>
             <TextInput

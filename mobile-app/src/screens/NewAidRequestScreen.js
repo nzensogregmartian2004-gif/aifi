@@ -7,6 +7,7 @@ import { colors, money } from "../theme";
 
 export default function NewAidRequestScreen({ navigation }) {
   const [available, setAvailable] = useState(null);
+  const [feePercent, setFeePercent] = useState(null);
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -14,8 +15,14 @@ export default function NewAidRequestScreen({ navigation }) {
   useFocusEffect(
     useCallback(() => {
       api.get("/client/dashboard").then(({ data }) => setAvailable(data.ceilingAvailable)).catch(() => {});
+      api.get("/client/settings").then(({ data }) => setFeePercent(data.serviceFeePercent)).catch(() => {});
     }, [])
   );
+
+  const amountDue =
+    feePercent != null && amount && Number(amount) > 0
+      ? Math.round(Number(amount) * (1 + feePercent / 100))
+      : null;
 
   async function submit() {
     setError("");
@@ -63,6 +70,14 @@ export default function NewAidRequestScreen({ navigation }) {
           placeholderTextColor={colors.inkSoft}
         />
 
+        {amountDue !== null && (
+          <View style={styles.previewBox}>
+            <Text style={styles.previewLabel}>Total à rembourser</Text>
+            <Text style={styles.previewValue}>{money(amountDue)} FCFA</Text>
+            <Text style={styles.previewHint}>Frais de service inclus ({feePercent}%)</Text>
+          </View>
+        )}
+
         <PrimaryButton title="Envoyer la demande" onPress={submit} loading={loading} style={{ marginTop: 20 }} />
       </ScrollView>
     </KeyboardAvoidingView>
@@ -76,4 +91,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12,
     fontSize: 17, backgroundColor: "#fff", color: colors.ink, marginTop: 4,
   },
+  previewBox: { backgroundColor: colors.ink, borderRadius: 10, padding: 14, marginTop: 16, alignItems: "center" },
+  previewLabel: { color: "#8895ac", fontSize: 11.5, fontWeight: "700", textTransform: "uppercase" },
+  previewValue: { color: "#fff", fontSize: 22, fontWeight: "800", marginTop: 4 },
+  previewHint: { color: "#8895ac", fontSize: 11.5, marginTop: 4 },
 });

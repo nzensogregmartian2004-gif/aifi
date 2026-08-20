@@ -6,6 +6,7 @@ import { Card, ScreenTitle, PrimaryButton, EmptyState } from "../../components/u
 import { colors, money } from "../../theme";
 
 const SETTINGS_FIELDS = [
+  { key: "serviceFeePercent", label: "Frais de service (%) — ajoutés au remboursement" },
   { key: "minRepaymentAmount", label: "Montant minimum d'une avance de remboursement (FCFA)" },
   { key: "referralBonus", label: "Bonus de parrainage (FCFA)" },
   { key: "referralPoints", label: "Points de parrainage" },
@@ -105,6 +106,10 @@ export default function AdminSettingsScreen() {
 
         <Card>
           <Text style={styles.cardTitle}>Réglages généraux</Text>
+          <Text style={styles.subText}>
+            Ex : frais de service à 33% → une aide de 10 000 FCFA reçue devient 13 300 FCFA à rembourser. Le taux est
+            figé au moment de chaque demande, le modifier ici n'affecte pas les demandes déjà en cours.
+          </Text>
           {!settings ? (
             <Text style={styles.muted}>Chargement...</Text>
           ) : (

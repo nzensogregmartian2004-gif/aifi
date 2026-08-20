@@ -109,6 +109,7 @@ model AidRequest {
   userId               String
   user                 User              @relation(fields: [userId], references: [id])
   amount               Int
+  amountDue            Int
   status               AidRequestStatus  @default(PENDING)
   dueDate              DateTime?
   reminderSentAt       DateTime?
@@ -169,6 +170,7 @@ model AppSettings {
   minRepaymentAmount Int    @default(500)
   latePenaltyPoints  Int    @default(10)
   reminderDaysBefore Int    @default(2)
+  serviceFeePercent  Int    @default(33)
 }
 
 enum DeclarationStatus {

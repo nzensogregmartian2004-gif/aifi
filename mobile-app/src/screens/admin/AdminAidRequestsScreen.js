@@ -170,6 +170,7 @@ export default function AdminAidRequestsScreen() {
         ListEmptyComponent={<EmptyState text="Aucune demande dans ce filtre." />}
         renderItem={({ item }) => {
           const repaid = item.repayments.reduce((s, r) => s + r.amount, 0);
+          const remaining = item.amountDue - repaid;
           return (
             <Card>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -180,6 +181,11 @@ export default function AdminAidRequestsScreen() {
                 <Badge status={item.status} />
               </View>
               <Text style={{ fontSize: 20, fontWeight: "800", marginTop: 8 }}>{money(item.amount)} FCFA</Text>
+              {item.amountDue !== item.amount && (
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, marginTop: 2 }}>
+                  Total à rembourser : {money(item.amountDue)} FCFA
+                </Text>
+              )}
               {item.dueDate && (
                 <Text style={{ color: colors.inkSoft, fontSize: 12.5, marginTop: 2 }}>
                   Échéance : {new Date(item.dueDate).toLocaleDateString("fr-FR")}
@@ -187,7 +193,7 @@ export default function AdminAidRequestsScreen() {
               )}
               {repaid > 0 && (
                 <Text style={{ color: colors.success, fontSize: 12.5, marginTop: 2 }}>
-                  Déjà remboursé : {money(repaid)} FCFA
+                  Déjà remboursé : {money(repaid)} FCFA — reste dû : {money(remaining)} FCFA
                 </Text>
               )}
 

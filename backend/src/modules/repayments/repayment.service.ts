@@ -10,7 +10,7 @@ export async function getRemainingAmount(aidRequestId: string): Promise<number> 
     include: { repayments: true },
   });
   const totalRepaid = aidRequest.repayments.reduce((sum, r) => sum + r.amount, 0);
-  return aidRequest.amount - totalRepaid;
+  return aidRequest.amountDue - totalRepaid;
 }
 
 export async function recordRepayment(aidRequestId: string, amount: number, adminId?: string, proofImageUrl?: string) {
@@ -22,7 +22,7 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
     });
 
     const totalRepaidBefore = aidRequest.repayments.reduce((s, r) => s + r.amount, 0);
-    const remainingBefore = aidRequest.amount - totalRepaidBefore;
+    const remainingBefore = aidRequest.amountDue - totalRepaidBefore;
 
     if (amount <= 0) {
       throw new Error("Le montant du remboursement doit être positif");
@@ -123,7 +123,7 @@ export async function declareRepayment(
   }
 
   const totalRepaid = aidRequest.repayments.reduce((s, r) => s + r.amount, 0);
-  const remaining = aidRequest.amount - totalRepaid;
+  const remaining = aidRequest.amountDue - totalRepaid;
   if (amount > remaining) {
     throw new Error(`Le montant déclaré (${amount}) dépasse le montant restant dû (${remaining})`);
   }
@@ -143,7 +143,7 @@ export async function declareRepayment(
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   await notifyAdmins(
     "repayment_declared",
-    `${user.name} déclare avoir remboursé ${amount} FCFA sur sa demande de ${aidRequest.amount} FCFA.`,
+    `${user.name} déclare avoir remboursé ${amount} FCFA sur sa demande de ${aidRequest.amount} FCFA (à rembourser : ${aidRequest.amountDue} FCFA).`,
     aidRequestId
   );
 

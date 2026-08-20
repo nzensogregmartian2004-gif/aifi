@@ -107,7 +107,7 @@ export default function AdminQuickDepositScreen() {
                   >
                     <View style={{ flex: 1 }}>
                       <Text style={{ fontWeight: "700" }}>{money(r.amount)} FCFA</Text>
-                      <Text style={{ fontSize: 12, color: colors.inkSoft }}>Reste dû : {money(r.amount - repaid)} FCFA</Text>
+                      <Text style={{ fontSize: 12, color: colors.inkSoft }}>Reste dû : {money(r.amountDue - repaid)} FCFA</Text>
                     </View>
                     <Badge status={r.status} />
                   </TouchableOpacity>

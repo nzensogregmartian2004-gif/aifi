@@ -32,6 +32,7 @@ router.get("/settings", async (_req, res) => {
   res.json({
     minRepaymentAmount: settings.minRepaymentAmount,
     minWithdrawal: settings.minWithdrawal,
+    serviceFeePercent: settings.serviceFeePercent,
   });
 });
 
@@ -113,7 +114,7 @@ router.post("/aid-requests/:id/repayments/pay", validateBody(payRepaymentSchema)
 router.get("/payments/:transactionId/status", async (req, res) => {
   try {
     const transaction = await getPaymentStatus((req.params.transactionId as string), req.auth!.userId);
-    res.json({ status: transaction.status, amount: transaction.amount });
+    res.json({ status: transaction.status, amount: transaction.amount, operator: transaction.operator });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

@@ -103,4 +103,5 @@ export const settingsUpdateSchema = z.object({
   minRepaymentAmount: z.coerce.number().int().min(0).max(10_000_000).optional(),
   latePenaltyPoints: z.coerce.number().int().min(0).max(1000).optional(),
   reminderDaysBefore: z.coerce.number().int().min(0).max(60).optional(),
+  serviceFeePercent: z.coerce.number().min(0).max(500).optional(),
 });
