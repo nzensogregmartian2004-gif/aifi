@@ -56,8 +56,8 @@ router.get("/referrals", async (req, res) => {
 
 router.post("/wallet/withdraw", validateBody(requestWithdrawalSchema), async (req, res) => {
   try {
-    const { amount } = req.body;
-    const result = await requestWithdrawal(req.auth!.userId, amount);
+    const { amount, receivingOperator, receivingPhone, receivingName } = req.body;
+    const result = await requestWithdrawal(req.auth!.userId, amount, receivingOperator, receivingPhone, receivingName);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

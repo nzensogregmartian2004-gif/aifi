@@ -1,7 +1,8 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, FlatList, TextInput, StyleSheet, RefreshControl, Alert } from "react-native";
+import { View, Text, FlatList, TextInput, StyleSheet, RefreshControl, Alert, TouchableOpacity } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { api, apiErrorMessage } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import { Card, ScreenTitle, PrimaryButton, EmptyState } from "../components/ui";
 import { colors, money } from "../theme";
 
@@ -11,10 +12,19 @@ const REASON_LABELS = {
   withdrawal_approved: "Retrait approuvé",
 };
 
+const OPERATORS = [
+  { code: "AIRTEL_MONEY", label: "Airtel Money" },
+  { code: "MOOV_MONEY", label: "Moov Money" },
+];
+
 export default function WalletScreen() {
+  const { user } = useAuth();
   const [wallet, setWallet] = useState(null);
   const [minWithdrawal, setMinWithdrawal] = useState(null);
   const [amount, setAmount] = useState("");
+  const [operator, setOperator] = useState("AIRTEL_MONEY");
+  const [receivingPhone, setReceivingPhone] = useState(user?.phone || "");
+  const [receivingName, setReceivingName] = useState(user?.name || "");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -40,12 +50,19 @@ export default function WalletScreen() {
   async function withdraw() {
     setError("");
     if (!amount || Number(amount) <= 0) {
-      setError("Indique un montant valide.");
-      return;
+      return setError("Indique un montant valide.");
+    }
+    if (!receivingPhone.trim() || !receivingName.trim()) {
+      return setError("Le numéro et le nom du compte de réception sont obligatoires.");
     }
     setLoading(true);
     try {
-      await api.post("/client/wallet/withdraw", { amount: Number(amount) });
+      await api.post("/client/wallet/withdraw", {
+        amount: Number(amount),
+        receivingOperator: operator,
+        receivingPhone: receivingPhone.trim(),
+        receivingName: receivingName.trim(),
+      });
       Alert.alert("Demande envoyée", "Ta demande de retrait a été transmise à l'administrateur.");
       setAmount("");
       load();
@@ -80,7 +97,40 @@ export default function WalletScreen() {
             placeholder="Montant en FCFA"
             placeholderTextColor={colors.inkSoft}
           />
-          <PrimaryButton title="Demander le retrait" onPress={withdraw} loading={loading} style={{ marginTop: 10 }} />
+
+          <Text style={[styles.label, { marginTop: 14 }]}>Où veux-tu recevoir l'argent ?</Text>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 6, marginBottom: 4 }}>
+            {OPERATORS.map((op) => (
+              <TouchableOpacity
+                key={op.code}
+                onPress={() => setOperator(op.code)}
+                style={[styles.chip, operator === op.code && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, operator === op.code && styles.chipTextActive]}>{op.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.label}>Numéro {operator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}</Text>
+          <TextInput
+            style={styles.input}
+            value={receivingPhone}
+            onChangeText={setReceivingPhone}
+            keyboardType="phone-pad"
+            placeholder="ex : 077000000"
+            placeholderTextColor={colors.inkSoft}
+          />
+
+          <Text style={styles.label}>Nom sur le compte</Text>
+          <TextInput
+            style={styles.input}
+            value={receivingName}
+            onChangeText={setReceivingName}
+            placeholder="Nom et prénom"
+            placeholderTextColor={colors.inkSoft}
+          />
+
+          <PrimaryButton title="Demander le retrait" onPress={withdraw} loading={loading} style={{ marginTop: 14 }} />
         </Card>
 
         <Text style={[styles.label, { marginTop: 6 }]}>Historique</Text>
@@ -117,4 +167,11 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 11,
     fontSize: 15, backgroundColor: "#fff", color: colors.ink,
   },
+  chip: {
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, backgroundColor: "#fff",
+    borderWidth: 1, borderColor: colors.line,
+  },
+  chipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  chipText: { fontSize: 13, fontWeight: "600", color: colors.ink },
+  chipTextActive: { color: "#fff" },
 });

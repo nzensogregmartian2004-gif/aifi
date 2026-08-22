@@ -360,9 +360,7 @@ router.post("/withdrawals/:id/approve", validateBody(approveWithdrawalSchema), a
 
 router.post("/withdrawals/:id/approve-mypvit", async (req, res) => {
   try {
-    const { operatorCode } = req.body as { operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY" };
-    if (!operatorCode) throw new Error("operatorCode est requis");
-    const withdrawal = await approveWithdrawalViaMypvit((req.params.id as string), req.auth!.userId, operatorCode);
+    const withdrawal = await approveWithdrawalViaMypvit((req.params.id as string), req.auth!.userId);
     res.json(withdrawal);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

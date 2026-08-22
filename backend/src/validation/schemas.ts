@@ -50,6 +50,9 @@ export const requestAidSchema = z.object({
 
 export const requestWithdrawalSchema = z.object({
   amount,
+  receivingOperator: z.enum(["AIRTEL_MONEY", "MOOV_MONEY"]),
+  receivingPhone: z.string().min(6).max(20),
+  receivingName: z.string().min(2).max(100),
 });
 
 export const recordRepaymentSchema = z.object({

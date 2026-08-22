@@ -150,6 +150,9 @@ model Withdrawal {
   amount    Int
   status    WithdrawalStatus @default(PENDING)
   proofImageUrl String?
+  receivingOperator String?
+  receivingPhone    String?
+  receivingName     String?
   createdAt DateTime         @default(now())
 }
 
