@@ -69,6 +69,8 @@ export const declareRepaymentSchema = z.object({
 export const payRepaymentSchema = z.object({
   amount,
   operatorCode: z.enum(["AIRTEL_MONEY", "MOOV_MONEY", "VISA_MASTERCARD"]).optional(),
+  phone: z.string().min(6).max(20).optional(), // pour carte, pas de numéro Mobile Money requis
+  name: z.string().min(2).max(100).optional(),
 });
 
 export const rejectDeclarationSchema = z.object({

@@ -24,6 +24,9 @@ async function fetchNewSecret(): Promise<string> {
   const body = new URLSearchParams({
     operationAccountCode: env.mypvit.operationAccountCode,
     password: env.mypvit.apiPassword,
+    // Exigé par MyPVit en production bien que non documenté dans le guide
+    // d'intégration initial — sans lui, l'API renvoie MISSING_REQUEST_PARAM.
+    receptionUrlCode: env.mypvit.callbackUrlCode,
   });
 
   const res = await fetch(url, {

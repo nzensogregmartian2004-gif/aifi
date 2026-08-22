@@ -102,10 +102,10 @@ router.post("/aid-requests/:id/repayments/pay", validateBody(payRepaymentSchema)
     if (!isMypvitConfigured()) {
       throw new Error("Le paiement Mobile Money n'est pas encore activé. Utilise la déclaration manuelle.");
     }
-    const { amount, operatorCode } = req.body;
+    const { amount, operatorCode, phone, name } = req.body;
     const op = operatorCode || detectOperator((await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } })).phone);
     if (!op) throw new Error("Impossible de déterminer l'opérateur Mobile Money. Précise-le.");
-    const result = await startRepaymentPayment(req.auth!.userId, (req.params.id as string), amount, op);
+    const result = await startRepaymentPayment(req.auth!.userId, (req.params.id as string), amount, op, phone, name);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

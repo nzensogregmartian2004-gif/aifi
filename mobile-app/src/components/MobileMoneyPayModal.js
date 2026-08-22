@@ -31,6 +31,8 @@ export default function MobileMoneyPayModal({
   const { user } = useAuth();
   const [operator, setOperator] = useState("AIRTEL_MONEY");
   const [amount, setAmount] = useState("");
+  const [payerPhone, setPayerPhone] = useState(user?.phone || "");
+  const [payerName, setPayerName] = useState(user?.name || "");
   const [stage, setStage] = useState("form"); // form | pending | success | failed
   const [error, setError] = useState("");
   const [confirmedAt, setConfirmedAt] = useState(null);
@@ -45,6 +47,8 @@ export default function MobileMoneyPayModal({
       setStage("form");
       setAmount("");
       setError("");
+      setPayerPhone(user?.phone || "");
+      setPayerName(user?.name || "");
     }
     return () => {
       clearInterval(pollRef.current);
@@ -62,12 +66,20 @@ export default function MobileMoneyPayModal({
     if (isPartial && !isFinalPayment && minRepaymentAmount && value < minRepaymentAmount) {
       return setError(`Le montant minimum d'une avance est de ${money(minRepaymentAmount)} FCFA.`);
     }
+    if (operator !== "VISA_MASTERCARD" && !payerPhone.trim()) {
+      return setError("Le numéro Mobile Money est obligatoire.");
+    }
+    if (!payerName.trim()) {
+      return setError("Le nom sur le compte est obligatoire.");
+    }
     setError("");
     setStage("pending");
     try {
       const { data } = await api.post(`/client/aid-requests/${aidRequest.id}/repayments/pay`, {
         amount: value,
         operatorCode: operator,
+        phone: payerPhone.trim(),
+        name: payerName.trim(),
       });
       pollStatus(data.transactionId);
     } catch (err) {
@@ -162,6 +174,27 @@ export default function MobileMoneyPayModal({
                 </View>
               )}
 
+              {operator !== "VISA_MASTERCARD" && (
+                <>
+                  <Text style={styles.label}>Numéro {operator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={payerPhone}
+                    onChangeText={setPayerPhone}
+                    keyboardType="phone-pad"
+                    placeholder="ex : 077000000"
+                  />
+                </>
+              )}
+
+              <Text style={styles.label}>Nom sur le compte</Text>
+              <TextInput
+                style={styles.input}
+                value={payerName}
+                onChangeText={setPayerName}
+                placeholder="Nom et prénom"
+              />
+
               {!!error && <Text style={{ color: colors.danger, marginTop: 10, marginBottom: 2 }}>{error}</Text>}
 
               <PrimaryButton
@@ -215,7 +248,7 @@ export default function MobileMoneyPayModal({
                 </View>
                 <View style={styles.receiptRow}>
                   <Text style={styles.receiptLabel}>Compte</Text>
-                  <Text style={styles.receiptValue}>{user?.phone}</Text>
+                  <Text style={styles.receiptValue}>{operator === "VISA_MASTERCARD" ? payerName : payerPhone}</Text>
                 </View>
                 <View style={styles.receiptRow}>
                   <Text style={styles.receiptLabel}>Date</Text>

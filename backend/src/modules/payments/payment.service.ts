@@ -3,7 +3,14 @@ import { initiatePayment, generatePaymentReference, checkTransactionStatus } fro
 import { recordRepayment, getRemainingAmount } from "../repayments/repayment.service";
 import { notifyUser } from "../notifications/notification.service";
 
-export async function startRepaymentPayment(userId: string, aidRequestId: string, amount: number, operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY" | "VISA_MASTERCARD") {
+export async function startRepaymentPayment(
+  userId: string,
+  aidRequestId: string,
+  amount: number,
+  operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY" | "VISA_MASTERCARD",
+  phone: string,
+  payerName?: string
+) {
   const aidRequest = await prisma.aidRequest.findUniqueOrThrow({ where: { id: aidRequestId } });
   if (aidRequest.userId !== userId) {
     throw new Error("Cette aide ne t'appartient pas");
@@ -14,13 +21,15 @@ export async function startRepaymentPayment(userId: string, aidRequestId: string
   if (!amount || amount <= 0) {
     throw new Error("Le montant doit être positif");
   }
+  if (operatorCode !== "VISA_MASTERCARD" && !phone) {
+    throw new Error("Le numéro Mobile Money est obligatoire.");
+  }
 
   const remaining = await getRemainingAmount(aidRequestId);
   if (amount > remaining) {
     throw new Error(`Le montant (${amount}) dépasse le reste dû (${remaining} FCFA).`);
   }
 
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   const reference = generatePaymentReference();
 
   // On crée la trace AVANT l'appel externe : même si l'appel échoue en cours de
@@ -39,10 +48,10 @@ export async function startRepaymentPayment(userId: string, aidRequestId: string
   try {
     const response = await initiatePayment({
       amount,
-      phone: user.phone,
+      phone,
       reference,
       operatorCode,
-      freeInfo: `Remboursement AIFI ${aidRequestId.slice(0, 8)}`,
+      freeInfo: payerName ? `Remboursement AIFI ${aidRequestId.slice(0, 8)} — ${payerName}` : `Remboursement AIFI ${aidRequestId.slice(0, 8)}`,
     });
 
     await prisma.paymentTransaction.update({
