@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { getSettings, updateSettings } from "../modules/settings/settings.service";
 import { getAllTiers, upsertTier, deleteTier } from "../modules/ceilings/ceiling.service";
+import { getAllDurationTiers, upsertDurationTier, deleteDurationTier } from "../modules/durations/duration-tier.service";
 import { validateBody } from "../middleware/validate";
-import { settingsUpdateSchema, settingsCeilingSchema } from "../validation/schemas";
+import { settingsUpdateSchema, settingsCeilingSchema, durationTierSchema } from "../validation/schemas";
 
 const router = Router();
 
@@ -38,6 +39,30 @@ router.put("/tiers", validateBody(settingsCeilingSchema), async (req, res) => {
 router.delete("/tiers/:id", async (req, res) => {
   try {
     await deleteTier((req.params.id as string));
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/duration-tiers", async (_req, res) => {
+  const tiers = await getAllDurationTiers();
+  res.json(tiers);
+});
+
+router.put("/duration-tiers", validateBody(durationTierSchema), async (req, res) => {
+  try {
+    const { minAmount, durationDays } = req.body;
+    const tier = await upsertDurationTier(minAmount, durationDays);
+    res.json(tier);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete("/duration-tiers/:id", async (req, res) => {
+  try {
+    await deleteDurationTier((req.params.id as string));
     res.json({ success: true });
   } catch (err: any) {
     res.status(400).json({ error: err.message });

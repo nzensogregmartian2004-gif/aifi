@@ -15,7 +15,7 @@ export default function NewAidRequestScreen({ navigation }) {
   const { user } = useAuth();
   const [available, setAvailable] = useState(null);
   const [feePercent, setFeePercent] = useState(null);
-  const [durationDays, setDurationDays] = useState(null);
+  const [tiers, setTiers] = useState([]); // grille montant -> durée
   const [amount, setAmount] = useState("");
   const [operator, setOperator] = useState("AIRTEL_MONEY");
   const [receivingPhone, setReceivingPhone] = useState(user?.phone || "");
@@ -24,31 +24,42 @@ export default function NewAidRequestScreen({ navigation }) {
   const [error, setError] = useState("");
 
   // Toujours relu à l'ouverture de l'écran — si l'admin change le taux ou la
-  // durée dans Paramètres, le client voit la nouvelle valeur immédiatement.
+  // grille des paliers dans Paramètres, le client voit la nouvelle valeur
+  // immédiatement.
   useFocusEffect(
     useCallback(() => {
       api.get("/client/dashboard").then(({ data }) => setAvailable(data.ceilingAvailable)).catch(() => {});
-      api.get("/client/settings").then(({ data }) => {
-        setFeePercent(data.serviceFeePercent);
-        setDurationDays(data.defaultDurationDays);
-      }).catch(() => {});
+      api.get("/client/settings").then(({ data }) => setFeePercent(data.serviceFeePercent)).catch(() => {});
+      api.get("/client/duration-tiers").then(({ data }) => setTiers(data)).catch(() => {});
     }, [])
   );
 
-  const amountDue =
-    feePercent != null && amount && Number(amount) > 0
-      ? Math.round(Number(amount) * (1 + feePercent / 100))
+  const amountNum = Number(amount) || 0;
+
+  // Le montant demandé est rattaché au palier immédiatement inférieur (le
+  // plus grand minAmount <= montant demandé) — même logique que côté serveur.
+  const matchedTier =
+    amountNum > 0
+      ? [...tiers].filter((t) => t.minAmount <= amountNum).sort((a, b) => b.minAmount - a.minAmount)[0] || null
       : null;
+  const smallestTier = tiers.length ? [...tiers].sort((a, b) => a.minAmount - b.minAmount)[0] : null;
+  const belowMinimum = amountNum > 0 && smallestTier && amountNum < smallestTier.minAmount;
+
+  const amountDue =
+    feePercent != null && amountNum > 0 ? Math.round(amountNum * (1 + feePercent / 100)) : null;
 
   const dueDate =
-    durationDays != null
-      ? new Date(Date.now() + durationDays * 24 * 60 * 60 * 1000)
+    matchedTier != null
+      ? new Date(Date.now() + matchedTier.durationDays * 24 * 60 * 60 * 1000)
       : null;
 
   async function submit() {
     setError("");
-    if (!amount || Number(amount) <= 0) {
+    if (!amount || amountNum <= 0) {
       return setError("Indique un montant valide.");
+    }
+    if (belowMinimum) {
+      return setError(`Le montant minimum pour une demande est de ${money(smallestTier.minAmount)} FCFA.`);
     }
     if (!receivingPhone.trim() || !receivingName.trim()) {
       return setError("Le numéro et le nom du compte de réception sont obligatoires.");
@@ -56,7 +67,7 @@ export default function NewAidRequestScreen({ navigation }) {
     setLoading(true);
     try {
       await api.post("/client/aid-requests", {
-        amount: Number(amount),
+        amount: amountNum,
         receivingOperator: operator,
         receivingPhone: receivingPhone.trim(),
         receivingName: receivingName.trim(),
@@ -94,17 +105,26 @@ export default function NewAidRequestScreen({ navigation }) {
           value={amount}
           onChangeText={setAmount}
           keyboardType="numeric"
-          placeholder="ex : 2000"
+          placeholder="ex : 1300"
           placeholderTextColor={colors.inkSoft}
         />
+        {belowMinimum && (
+          <Text style={styles.warnText}>Montant minimum : {money(smallestTier.minAmount)} FCFA</Text>
+        )}
 
         {/* Conditions affichées clairement AVANT que le client ne confirme */}
         <View style={styles.conditionsBox}>
           <Text style={styles.conditionsTitle}>Conditions de cette aide</Text>
           <View style={styles.conditionRow}>
             <Text style={styles.conditionLabel}>Tu reçois</Text>
-            <Text style={styles.conditionValue}>{amount ? `${money(amount)} FCFA` : "—"}</Text>
+            <Text style={styles.conditionValue}>{amountNum > 0 ? `${money(amountNum)} FCFA` : "—"}</Text>
           </View>
+          {matchedTier && (
+            <View style={styles.conditionRow}>
+              <Text style={styles.conditionLabel}>Palier appliqué</Text>
+              <Text style={styles.conditionValue}>{money(matchedTier.minAmount)} FCFA</Text>
+            </View>
+          )}
           <View style={styles.conditionRow}>
             <Text style={styles.conditionLabel}>Total à rembourser</Text>
             <Text style={[styles.conditionValue, styles.conditionValueStrong]}>
@@ -113,7 +133,7 @@ export default function NewAidRequestScreen({ navigation }) {
           </View>
           <View style={styles.conditionRow}>
             <Text style={styles.conditionLabel}>Délai de remboursement</Text>
-            <Text style={styles.conditionValue}>{durationDays != null ? `${durationDays} jours` : "—"}</Text>
+            <Text style={styles.conditionValue}>{matchedTier ? `${matchedTier.durationDays} jours` : "—"}</Text>
           </View>
           <View style={styles.conditionRow}>
             <Text style={styles.conditionLabel}>Date limite</Text>
@@ -175,6 +195,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 12,
     fontSize: 16, backgroundColor: "#fff", color: colors.ink,
   },
+  warnText: { color: colors.danger, fontSize: 12, marginTop: 6 },
   fieldHint: { fontSize: 11, color: colors.inkSoft, marginTop: 6 },
   conditionsBox: { backgroundColor: colors.ink, borderRadius: 12, padding: 16, marginTop: 18 },
   conditionsTitle: { color: "#fff", fontSize: 13, fontWeight: "800", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4 },

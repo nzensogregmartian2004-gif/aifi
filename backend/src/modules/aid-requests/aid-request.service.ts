@@ -2,6 +2,7 @@ import { prisma } from "../../db/client";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
 import { logAction } from "../audit/audit.service";
 import { giveChange, generateDisbursementReference } from "../payments/mypvit.client";
+import { computeDurationForAmount } from "../durations/duration-tier.service";
 
 export async function getAvailableCeiling(userId: string): Promise<number> {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -47,13 +48,14 @@ export async function requestAid(
   }
 
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+  const { tierAmount, durationDays } = await computeDurationForAmount(amount);
   // Le taux ET la durée sont figés à la date de la demande : les modifier
-  // plus tard dans les paramètres n'affecte jamais les demandes déjà créées
-  // — le client garde exactement ce qu'il a vu et accepté au moment de sa
-  // demande.
+  // plus tard dans les paramètres (taux global ou grille des paliers)
+  // n'affecte jamais les demandes déjà créées — le client garde exactement
+  // ce qu'il a vu et accepté au moment de sa demande.
   const amountDue = Math.round(amount * (1 + settings.serviceFeePercent / 100));
   const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + settings.defaultDurationDays);
+  dueDate.setDate(dueDate.getDate() + durationDays);
 
   const request = await prisma.aidRequest.create({
     data: {
@@ -61,6 +63,8 @@ export async function requestAid(
       amount,
       amountDue,
       dueDate,
+      durationDays,
+      durationTierAmount: tierAmount,
       receivingOperator,
       receivingPhone,
       receivingName,

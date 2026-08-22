@@ -112,6 +112,8 @@ model AidRequest {
   amountDue            Int
   status               AidRequestStatus  @default(PENDING)
   dueDate              DateTime?
+  durationDays         Int?
+  durationTierAmount   Int?
   receivingOperator    String?
   receivingPhone       String?
   receivingName        String?
@@ -177,7 +179,12 @@ model AppSettings {
   latePenaltyPoints  Int    @default(10)
   reminderDaysBefore Int    @default(2)
   serviceFeePercent  Int    @default(33)
-  defaultDurationDays Int   @default(15)
+}
+
+model DurationTier {
+  id           String @id @default(uuid())
+  minAmount    Int    @unique
+  durationDays Int
 }
 
 enum DeclarationStatus {

@@ -184,6 +184,11 @@ export default function AdminAidRequestsScreen({ navigation }) {
                   Total à rembourser : {money(item.amountDue)} FCFA
                 </Text>
               )}
+              {item.durationTierAmount != null && (
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5, marginTop: 2 }}>
+                  Palier : {money(item.durationTierAmount)} FCFA → {item.durationDays} jours
+                </Text>
+              )}
               <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 2 }}>
                 <Text style={{ color: colors.inkSoft, fontSize: 12.5 }}>
                   Demandée le {new Date(item.createdAt).toLocaleDateString("fr-FR")}

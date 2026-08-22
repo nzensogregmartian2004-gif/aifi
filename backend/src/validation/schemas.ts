@@ -104,5 +104,9 @@ export const settingsUpdateSchema = z.object({
   latePenaltyPoints: z.coerce.number().int().min(0).max(1000).optional(),
   reminderDaysBefore: z.coerce.number().int().min(0).max(60).optional(),
   serviceFeePercent: z.coerce.number().min(0).max(500).optional(),
-  defaultDurationDays: z.coerce.number().int().min(1).max(365).optional(),
+});
+
+export const durationTierSchema = z.object({
+  minAmount: z.coerce.number().int().positive(),
+  durationDays: z.coerce.number().int().positive().max(365),
 });

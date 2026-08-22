@@ -33,8 +33,12 @@ router.get("/settings", async (_req, res) => {
     minRepaymentAmount: settings.minRepaymentAmount,
     minWithdrawal: settings.minWithdrawal,
     serviceFeePercent: settings.serviceFeePercent,
-    defaultDurationDays: settings.defaultDurationDays,
   });
+});
+
+router.get("/duration-tiers", async (_req, res) => {
+  const tiers = await prisma.durationTier.findMany({ orderBy: { minAmount: "asc" } });
+  res.json(tiers);
 });
 
 router.get("/wallet", async (req, res) => {

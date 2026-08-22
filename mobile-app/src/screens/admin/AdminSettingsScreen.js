@@ -7,7 +7,6 @@ import { colors, money } from "../../theme";
 
 const SETTINGS_FIELDS = [
   { key: "serviceFeePercent", label: "Frais de service (%) — ajoutés au remboursement" },
-  { key: "defaultDurationDays", label: "Délai de remboursement par défaut (jours)" },
   { key: "minRepaymentAmount", label: "Montant minimum d'une avance de remboursement (FCFA)" },
   { key: "referralBonus", label: "Bonus de parrainage (FCFA)" },
   { key: "referralPoints", label: "Points de parrainage" },
@@ -20,14 +19,18 @@ const SETTINGS_FIELDS = [
 export default function AdminSettingsScreen() {
   const [settings, setSettings] = useState(null);
   const [tiers, setTiers] = useState([]);
+  const [durationTiers, setDurationTiers] = useState([]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [newTier, setNewTier] = useState({ minPoints: "", ceiling: "" });
   const [savingTier, setSavingTier] = useState(false);
+  const [newDurationTier, setNewDurationTier] = useState({ minAmount: "", durationDays: "" });
+  const [savingDurationTier, setSavingDurationTier] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
     api.get("/admin/settings").then(({ data }) => setSettings(data)).catch((e) => setError(apiErrorMessage(e)));
     api.get("/admin/settings/tiers").then(({ data }) => setTiers(data)).catch(() => {});
+    api.get("/admin/settings/duration-tiers").then(({ data }) => setDurationTiers(data)).catch(() => {});
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -65,6 +68,32 @@ export default function AdminSettingsScreen() {
   async function deleteTier(id) {
     try {
       await api.delete(`/admin/settings/tiers/${id}`);
+      load();
+    } catch (err) {
+      Alert.alert("Erreur", apiErrorMessage(err));
+    }
+  }
+
+  async function addDurationTier() {
+    if (!newDurationTier.minAmount || !newDurationTier.durationDays) return;
+    setSavingDurationTier(true);
+    try {
+      await api.put("/admin/settings/duration-tiers", {
+        minAmount: Number(newDurationTier.minAmount),
+        durationDays: Number(newDurationTier.durationDays),
+      });
+      setNewDurationTier({ minAmount: "", durationDays: "" });
+      load();
+    } catch (err) {
+      Alert.alert("Erreur", apiErrorMessage(err));
+    } finally {
+      setSavingDurationTier(false);
+    }
+  }
+
+  async function deleteDurationTier(id) {
+    try {
+      await api.delete(`/admin/settings/duration-tiers/${id}`);
       load();
     } catch (err) {
       Alert.alert("Erreur", apiErrorMessage(err));
@@ -138,6 +167,49 @@ export default function AdminSettingsScreen() {
             />
           </View>
           <PrimaryButton title="Ajouter / mettre à jour le palier" variant="outline" onPress={addTier} loading={savingTier} style={{ marginTop: 10 }} />
+        </Card>
+
+        <Card>
+          <Text style={styles.cardTitle}>Grille : montant → durée de remboursement</Text>
+          <Text style={styles.subText}>
+            Le montant demandé est rattaché au palier immédiatement inférieur. Ex : une demande de 1 300 FCFA entre
+            dans le palier 1 000 FCFA et suit sa durée. Modifier la grille n'affecte pas les demandes déjà créées.
+          </Text>
+          <FlatList
+            data={durationTiers}
+            keyExtractor={(t) => t.id}
+            scrollEnabled={false}
+            ListEmptyComponent={<EmptyState text="Aucun palier configuré." />}
+            renderItem={({ item }) => (
+              <View style={styles.row}>
+                <Text style={styles.rowText}>{money(item.minAmount)} FCFA → {item.durationDays} jours</Text>
+                <PrimaryButton title="Supprimer" variant="outline" onPress={() => deleteDurationTier(item.id)} style={styles.rowBtn} />
+              </View>
+            )}
+          />
+          <View style={styles.addRow}>
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              keyboardType="numeric"
+              placeholder="Montant min. FCFA"
+              value={newDurationTier.minAmount}
+              onChangeText={(v) => setNewDurationTier({ ...newDurationTier, minAmount: v })}
+            />
+            <TextInput
+              style={[styles.input, { flex: 1 }]}
+              keyboardType="numeric"
+              placeholder="Durée (jours)"
+              value={newDurationTier.durationDays}
+              onChangeText={(v) => setNewDurationTier({ ...newDurationTier, durationDays: v })}
+            />
+          </View>
+          <PrimaryButton
+            title="Ajouter / mettre à jour le palier"
+            variant="outline"
+            onPress={addDurationTier}
+            loading={savingDurationTier}
+            style={{ marginTop: 10 }}
+          />
         </Card>
       </ScrollView>
     </KeyboardAvoidingView>
