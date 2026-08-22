@@ -14,19 +14,19 @@ const FILTERS = [
   { key: "", label: "Toutes" },
 ];
 
-export default function AdminAidRequestsScreen() {
+const OPERATOR_LABELS = { AIRTEL_MONEY: "Airtel Money", MOOV_MONEY: "Moov Money" };
+
+export default function AdminAidRequestsScreen({ navigation }) {
   const [filter, setFilter] = useState("PENDING");
   const [requests, setRequests] = useState([]);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [durations, setDurations] = useState([]);
   const [acceptTarget, setAcceptTarget] = useState(null);
-  const [selectedDuration, setSelectedDuration] = useState(null);
   const [depositTarget, setDepositTarget] = useState(null);
   const [depositAmount, setDepositAmount] = useState("");
   const [depositProof, setDepositProof] = useState(null);
   const [disburseTarget, setDisburseTarget] = useState(null);
-  const [disburseOperator, setDisburseOperator] = useState("AIRTEL_MONEY");
+  const [disburseNote, setDisburseNote] = useState("");
   const [mypvitAvailable, setMypvitAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
@@ -39,7 +39,6 @@ export default function AdminAidRequestsScreen() {
     } catch (err) {
       setError(apiErrorMessage(err));
     }
-    api.get("/admin/settings/durations").then(({ data }) => setDurations(data)).catch(() => {});
     api.get("/admin/payments/config").then(({ data }) => setMypvitAvailable(data.available)).catch(() => setMypvitAvailable(false));
   }, [filter]);
 
@@ -52,11 +51,10 @@ export default function AdminAidRequestsScreen() {
   }
 
   async function accept() {
-    if (!selectedDuration) return setFormError("Choisis une durée.");
     setBusy(true);
     setFormError("");
     try {
-      await api.post(`/admin/aid-requests/${acceptTarget.id}/accept`, { durationDays: selectedDuration });
+      await api.post(`/admin/aid-requests/${acceptTarget.id}/accept`);
       setAcceptTarget(null);
       load();
     } catch (err) {
@@ -78,18 +76,17 @@ export default function AdminAidRequestsScreen() {
     }
   }
 
-  async function openDisburse(item) {
+  function openDisburse(item) {
     setDisburseTarget(item);
-    setDisburseOperator(null); // pas de présélection — l'admin choisit explicitement
+    setDisburseNote("");
     setFormError("");
   }
 
   async function disburseAuto() {
-    if (!disburseOperator) return setFormError("Choisis un opérateur.");
     setBusy(true);
     setFormError("");
     try {
-      await api.post(`/admin/aid-requests/${disburseTarget.id}/disburse-mypvit`, { operatorCode: disburseOperator });
+      await api.post(`/admin/aid-requests/${disburseTarget.id}/disburse-mypvit`);
       setDisburseTarget(null);
       load();
     } catch (err) {
@@ -103,7 +100,7 @@ export default function AdminAidRequestsScreen() {
     setBusy(true);
     setFormError("");
     try {
-      await api.post(`/admin/aid-requests/${disburseTarget.id}/disburse`);
+      await api.post(`/admin/aid-requests/${disburseTarget.id}/disburse`, { note: disburseNote || undefined });
       setDisburseTarget(null);
       load();
     } catch (err) {
@@ -180,19 +177,36 @@ export default function AdminAidRequestsScreen() {
                 </View>
                 <Badge status={item.status} />
               </View>
+
               <Text style={{ fontSize: 20, fontWeight: "800", marginTop: 8 }}>{money(item.amount)} FCFA</Text>
               {item.amountDue !== item.amount && (
                 <Text style={{ color: colors.inkSoft, fontSize: 12.5, marginTop: 2 }}>
                   Total à rembourser : {money(item.amountDue)} FCFA
                 </Text>
               )}
-              {item.dueDate && (
-                <Text style={{ color: colors.inkSoft, fontSize: 12.5, marginTop: 2 }}>
-                  Échéance : {new Date(item.dueDate).toLocaleDateString("fr-FR")}
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 2 }}>
+                <Text style={{ color: colors.inkSoft, fontSize: 12.5 }}>
+                  Demandée le {new Date(item.createdAt).toLocaleDateString("fr-FR")}
                 </Text>
+                {item.dueDate && (
+                  <Text style={{ color: colors.inkSoft, fontSize: 12.5 }}>
+                    Échéance : {new Date(item.dueDate).toLocaleDateString("fr-FR")}
+                  </Text>
+                )}
+              </View>
+
+              {item.receivingOperator && (
+                <View style={styles.receivingBox}>
+                  <Text style={styles.receivingTitle}>Réception choisie par le client</Text>
+                  <Text style={styles.receivingLine}>
+                    {OPERATOR_LABELS[item.receivingOperator] || item.receivingOperator} · {item.receivingPhone}
+                  </Text>
+                  <Text style={styles.receivingLine}>Nom sur le compte : {item.receivingName}</Text>
+                </View>
               )}
+
               {repaid > 0 && (
-                <Text style={{ color: colors.success, fontSize: 12.5, marginTop: 2 }}>
+                <Text style={{ color: colors.success, fontSize: 12.5, marginTop: 8 }}>
                   Déjà remboursé : {money(repaid)} FCFA — reste dû : {money(remaining)} FCFA
                 </Text>
               )}
@@ -202,7 +216,7 @@ export default function AdminAidRequestsScreen() {
                   <>
                     <PrimaryButton
                       title="Accepter"
-                      onPress={() => { setAcceptTarget(item); setSelectedDuration(null); setFormError(""); }}
+                      onPress={() => { setAcceptTarget(item); setFormError(""); }}
                       style={styles.smallBtn}
                     />
                     <PrimaryButton title="Refuser" variant="outline" onPress={() => reject(item)} style={styles.smallBtn} />
@@ -214,33 +228,32 @@ export default function AdminAidRequestsScreen() {
                 {["DISBURSED", "LATE"].includes(item.status) && (
                   <PrimaryButton title="Enregistrer un dépôt" onPress={() => openDeposit(item)} style={styles.smallBtn} />
                 )}
+                <PrimaryButton
+                  title="Voir les informations du client"
+                  variant="outline"
+                  onPress={() => navigation.navigate("AdminUtilisateurs", { screen: "AdminUserDetail", params: { userId: item.user.id } })}
+                  style={styles.smallBtn}
+                />
               </View>
             </Card>
           );
         }}
       />
 
-      {/* Modal acceptation avec choix de durée */}
+      {/* Modal acceptation — la durée est déjà figée depuis la demande, rien à choisir */}
       <Modal visible={!!acceptTarget} transparent animationType="fade" onRequestClose={() => setAcceptTarget(null)}>
         <View style={styles.modalBg}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Accepter la demande</Text>
-            <Text style={{ color: colors.inkSoft, marginBottom: 10 }}>Choisis la durée de remboursement.</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-              {durations.map((d) => (
-                <TouchableOpacity
-                  key={d.days}
-                  onPress={() => setSelectedDuration(d.days)}
-                  style={[styles.chip, selectedDuration === d.days && styles.chipActive]}
-                >
-                  <Text style={[styles.chipText, selectedDuration === d.days && styles.chipTextActive]}>
-                    {d.days} jours
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            {!!formError && <Text style={{ color: colors.danger, marginTop: 10 }}>{formError}</Text>}
-            <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+            <Text style={{ color: colors.inkSoft, marginTop: 6, marginBottom: 4 }}>
+              {acceptTarget?.user?.name} — {money(acceptTarget?.amount)} FCFA
+            </Text>
+            <Text style={{ color: colors.inkSoft, fontSize: 12.5, marginBottom: 14 }}>
+              À rembourser : {money(acceptTarget?.amountDue)} FCFA avant le{" "}
+              {acceptTarget?.dueDate && new Date(acceptTarget.dueDate).toLocaleDateString("fr-FR")}
+            </Text>
+            {!!formError && <Text style={{ color: colors.danger, marginBottom: 10 }}>{formError}</Text>}
+            <View style={{ flexDirection: "row", gap: 10 }}>
               <PrimaryButton title="Annuler" variant="outline" onPress={() => setAcceptTarget(null)} style={{ flex: 1 }} />
               <PrimaryButton title="Confirmer" onPress={accept} loading={busy} style={{ flex: 1 }} />
             </View>
@@ -277,42 +290,42 @@ export default function AdminAidRequestsScreen() {
         </View>
       </Modal>
 
-      {/* Modal envoi des fonds : automatique MyPVit ou manuel */}
+      {/* Modal envoi des fonds : vers le compte choisi PAR LE CLIENT — l'admin ne choisit jamais l'opérateur */}
       <Modal visible={!!disburseTarget} transparent animationType="fade" onRequestClose={() => setDisburseTarget(null)}>
         <View style={styles.modalBg}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Envoyer les fonds</Text>
-            <Text style={{ color: colors.inkSoft, marginBottom: 14 }}>
+            <Text style={{ color: colors.inkSoft, marginTop: 6, marginBottom: 14 }}>
               {disburseTarget?.user?.name} — {money(disburseTarget?.amount)} FCFA
             </Text>
 
-            {mypvitAvailable && (
+            <View style={styles.receivingBox}>
+              <Text style={styles.receivingTitle}>Destination (choisie par le client)</Text>
+              <Text style={styles.receivingLine}>
+                {OPERATOR_LABELS[disburseTarget?.receivingOperator] || "—"} · {disburseTarget?.receivingPhone || "—"}
+              </Text>
+              <Text style={styles.receivingLine}>Nom sur le compte : {disburseTarget?.receivingName || "—"}</Text>
+            </View>
+
+            {mypvitAvailable && disburseTarget?.receivingOperator && (
               <>
-                <Text style={styles.fieldLabel}>Opérateur (envoi automatique)</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
-                  {[{ code: "AIRTEL_MONEY", label: "Airtel Money" }, { code: "MOOV_MONEY", label: "Moov Money" }].map((op) => (
-                    <TouchableOpacity
-                      key={op.code}
-                      onPress={() => setDisburseOperator(op.code)}
-                      style={[styles.chip, disburseOperator === op.code && styles.chipActive]}
-                    >
-                      <Text style={[styles.chipText, disburseOperator === op.code && styles.chipTextActive]}>{op.label}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                {!!formError && <Text style={{ color: colors.danger, marginTop: 8 }}>{formError}</Text>}
+                {!!formError && <Text style={{ color: colors.danger, marginTop: 10 }}>{formError}</Text>}
                 <PrimaryButton title="Envoyer automatiquement" onPress={disburseAuto} loading={busy} style={{ marginTop: 14 }} />
                 <Text style={styles.orDivider}>— ou —</Text>
               </>
             )}
 
-            <PrimaryButton
-              title="J'ai envoyé l'argent moi-même"
-              variant="outline"
-              onPress={disburseManual}
-              loading={busy}
+            <Text style={styles.fieldLabel}>Envoi manuel</Text>
+            <TextInput
+              style={styles.input}
+              value={disburseNote}
+              onChangeText={setDisburseNote}
+              placeholder="Note (optionnel) — ex : envoyé via agent X"
             />
-            {!mypvitAvailable && !!formError && <Text style={{ color: colors.danger, marginTop: 10 }}>{formError}</Text>}
+            {(!mypvitAvailable || !disburseTarget?.receivingOperator) && !!formError && (
+              <Text style={{ color: colors.danger, marginTop: 4, marginBottom: 6 }}>{formError}</Text>
+            )}
+            <PrimaryButton title="J'ai envoyé l'argent moi-même" variant="outline" onPress={disburseManual} loading={busy} />
 
             <PrimaryButton title="Annuler" variant="outline" onPress={() => setDisburseTarget(null)} style={{ marginTop: 10 }} />
           </View>
@@ -334,10 +347,13 @@ const styles = StyleSheet.create({
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 24 },
   modalCard: { backgroundColor: colors.card, borderRadius: 18, padding: 20 },
   modalTitle: { fontSize: 17, fontWeight: "800", marginBottom: 4 },
-  fieldLabel: { fontSize: 11.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", marginBottom: 8 },
+  fieldLabel: { fontSize: 11.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", marginBottom: 8, marginTop: 4 },
   orDivider: { textAlign: "center", color: colors.inkSoft, fontSize: 12, marginVertical: 12 },
   input: {
     borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 12, fontSize: 15,
     marginBottom: 10, backgroundColor: colors.paper,
   },
+  receivingBox: { backgroundColor: colors.paper, borderRadius: 10, padding: 10, marginTop: 8 },
+  receivingTitle: { fontSize: 10.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", marginBottom: 4 },
+  receivingLine: { fontSize: 12.5, color: colors.ink, fontWeight: "600" },
 });

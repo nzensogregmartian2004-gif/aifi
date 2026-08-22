@@ -33,6 +33,7 @@ router.get("/settings", async (_req, res) => {
     minRepaymentAmount: settings.minRepaymentAmount,
     minWithdrawal: settings.minWithdrawal,
     serviceFeePercent: settings.serviceFeePercent,
+    defaultDurationDays: settings.defaultDurationDays,
   });
 });
 
@@ -65,8 +66,8 @@ router.post("/wallet/withdraw", validateBody(requestWithdrawalSchema), async (re
 
 router.post("/aid-requests", validateBody(requestAidSchema), async (req, res) => {
   try {
-    const { amount } = req.body;
-    const result = await requestAid(req.auth!.userId, amount);
+    const { amount, receivingOperator, receivingPhone, receivingName } = req.body;
+    const result = await requestAid(req.auth!.userId, amount, receivingOperator, receivingPhone, receivingName);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

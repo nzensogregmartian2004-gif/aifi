@@ -7,6 +7,7 @@ import { colors, money } from "../../theme";
 
 const SETTINGS_FIELDS = [
   { key: "serviceFeePercent", label: "Frais de service (%) — ajoutés au remboursement" },
+  { key: "defaultDurationDays", label: "Délai de remboursement par défaut (jours)" },
   { key: "minRepaymentAmount", label: "Montant minimum d'une avance de remboursement (FCFA)" },
   { key: "referralBonus", label: "Bonus de parrainage (FCFA)" },
   { key: "referralPoints", label: "Points de parrainage" },
@@ -19,18 +20,14 @@ const SETTINGS_FIELDS = [
 export default function AdminSettingsScreen() {
   const [settings, setSettings] = useState(null);
   const [tiers, setTiers] = useState([]);
-  const [durations, setDurations] = useState([]);
   const [savingSettings, setSavingSettings] = useState(false);
   const [newTier, setNewTier] = useState({ minPoints: "", ceiling: "" });
   const [savingTier, setSavingTier] = useState(false);
-  const [newDuration, setNewDuration] = useState("");
-  const [savingDuration, setSavingDuration] = useState(false);
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
     api.get("/admin/settings").then(({ data }) => setSettings(data)).catch((e) => setError(apiErrorMessage(e)));
     api.get("/admin/settings/tiers").then(({ data }) => setTiers(data)).catch(() => {});
-    api.get("/admin/settings/durations").then(({ data }) => setDurations(data)).catch(() => {});
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -68,29 +65,6 @@ export default function AdminSettingsScreen() {
   async function deleteTier(id) {
     try {
       await api.delete(`/admin/settings/tiers/${id}`);
-      load();
-    } catch (err) {
-      Alert.alert("Erreur", apiErrorMessage(err));
-    }
-  }
-
-  async function addDuration() {
-    if (!newDuration) return;
-    setSavingDuration(true);
-    try {
-      await api.post("/admin/settings/durations", { days: Number(newDuration) });
-      setNewDuration("");
-      load();
-    } catch (err) {
-      Alert.alert("Erreur", apiErrorMessage(err));
-    } finally {
-      setSavingDuration(false);
-    }
-  }
-
-  async function deleteDuration(id) {
-    try {
-      await api.delete(`/admin/settings/durations/${id}`);
       load();
     } catch (err) {
       Alert.alert("Erreur", apiErrorMessage(err));
@@ -164,32 +138,6 @@ export default function AdminSettingsScreen() {
             />
           </View>
           <PrimaryButton title="Ajouter / mettre à jour le palier" variant="outline" onPress={addTier} loading={savingTier} style={{ marginTop: 10 }} />
-        </Card>
-
-        <Card>
-          <Text style={styles.cardTitle}>Durées de remboursement autorisées</Text>
-          <FlatList
-            data={durations}
-            keyExtractor={(d) => d.id}
-            scrollEnabled={false}
-            ListEmptyComponent={<EmptyState text="Aucune durée configurée." />}
-            renderItem={({ item }) => (
-              <View style={styles.row}>
-                <Text style={styles.rowText}>{item.days} jours</Text>
-                <PrimaryButton title="Supprimer" variant="outline" onPress={() => deleteDuration(item.id)} style={styles.rowBtn} />
-              </View>
-            )}
-          />
-          <View style={styles.addRow}>
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              keyboardType="numeric"
-              placeholder="Nombre de jours"
-              value={newDuration}
-              onChangeText={setNewDuration}
-            />
-            <PrimaryButton title="Ajouter" variant="outline" onPress={addDuration} loading={savingDuration} style={{ flex: 1 }} />
-          </View>
         </Card>
       </ScrollView>
     </KeyboardAvoidingView>

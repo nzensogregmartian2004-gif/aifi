@@ -112,6 +112,9 @@ model AidRequest {
   amountDue            Int
   status               AidRequestStatus  @default(PENDING)
   dueDate              DateTime?
+  receivingOperator    String?
+  receivingPhone       String?
+  receivingName        String?
   reminderSentAt       DateTime?
   latePenaltyAppliedAt DateTime?
   createdAt            DateTime          @default(now())
@@ -171,6 +174,7 @@ model AppSettings {
   latePenaltyPoints  Int    @default(10)
   reminderDaysBefore Int    @default(2)
   serviceFeePercent  Int    @default(33)
+  defaultDurationDays Int   @default(15)
 }
 
 enum DeclarationStatus {
@@ -212,9 +216,4 @@ model CeilingTier {
   id        String @id @default(uuid())
   minPoints Int    @unique
   ceiling   Int
-}
-
-model AllowedDuration {
-  id   String @id @default(uuid())
-  days Int    @unique
 }

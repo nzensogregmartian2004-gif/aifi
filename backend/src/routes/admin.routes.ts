@@ -6,7 +6,7 @@ import { addPoints } from "../modules/points/points.service";
 import { creditWallet } from "../modules/wallet/wallet.service";
 import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal } from "../modules/wallet/withdrawal.service";
 import { getAdminDashboard } from "../modules/dashboard/admin-dashboard.service";
-import { acceptAidRequest, rejectAidRequest, disburseAidRequest, disburseAidRequestViaMypvit, suggestDisbursementOperator } from "../modules/aid-requests/aid-request.service";
+import { acceptAidRequest, rejectAidRequest, disburseAidRequest, disburseAidRequestViaMypvit } from "../modules/aid-requests/aid-request.service";
 import { suspendUser, reactivateUser, updateUserInfo, anonymizeUser } from "../modules/users/admin-user.service";
 import { register, adminResetPassword } from "../modules/users/auth.controller";
 import { notifyUser } from "../modules/notifications/notification.service";
@@ -21,7 +21,6 @@ import {
   adminCreateUserSchema,
   adminUpdateUserSchema,
   adminResetPasswordSchema,
-  acceptAidRequestSchema,
   recordRepaymentSchema,
   confirmDeclarationSchema,
   rejectDeclarationSchema,
@@ -216,10 +215,9 @@ router.get("/aid-requests", async (req, res) => {
   }
 });
 
-router.post("/aid-requests/:id/accept", validateBody(acceptAidRequestSchema), async (req, res) => {
+router.post("/aid-requests/:id/accept", async (req, res) => {
   try {
-    const { durationDays } = req.body;
-    const result = await acceptAidRequest((req.params.id as string), durationDays, req.auth!.userId);
+    const result = await acceptAidRequest((req.params.id as string), req.auth!.userId);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -237,7 +235,8 @@ router.post("/aid-requests/:id/reject", async (req, res) => {
 
 router.post("/aid-requests/:id/disburse", async (req, res) => {
   try {
-    const result = await disburseAidRequest((req.params.id as string), req.auth!.userId);
+    const { note } = req.body as { note?: string };
+    const result = await disburseAidRequest((req.params.id as string), req.auth!.userId, note);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
@@ -248,20 +247,9 @@ router.get("/payments/config", async (_req, res) => {
   res.json({ available: isMypvitConfigured() });
 });
 
-router.get("/aid-requests/:id/suggested-operator", async (req, res) => {
-  try {
-    const operator = await suggestDisbursementOperator(req.params.id as string);
-    res.json({ operator });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
 router.post("/aid-requests/:id/disburse-mypvit", async (req, res) => {
   try {
-    const { operatorCode } = req.body as { operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY" };
-    if (!operatorCode) throw new Error("operatorCode est requis");
-    const result = await disburseAidRequestViaMypvit((req.params.id as string), req.auth!.userId, operatorCode);
+    const result = await disburseAidRequestViaMypvit((req.params.id as string), req.auth!.userId);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

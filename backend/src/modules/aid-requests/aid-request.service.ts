@@ -1,7 +1,7 @@
 import { prisma } from "../../db/client";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
 import { logAction } from "../audit/audit.service";
-import { giveChange, generateDisbursementReference, detectOperator } from "../payments/mypvit.client";
+import { giveChange, generateDisbursementReference } from "../payments/mypvit.client";
 
 export async function getAvailableCeiling(userId: string): Promise<number> {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -22,9 +22,18 @@ export async function getAvailableCeiling(userId: string): Promise<number> {
   return user.ceiling - totalUsed;
 }
 
-export async function requestAid(userId: string, amount: number) {
+export async function requestAid(
+  userId: string,
+  amount: number,
+  receivingOperator: "AIRTEL_MONEY" | "MOOV_MONEY",
+  receivingPhone: string,
+  receivingName: string
+) {
   if (!amount || amount <= 0) {
     throw new Error("Le montant demandé doit être positif");
+  }
+  if (!receivingOperator || !receivingPhone || !receivingName) {
+    throw new Error("L'opérateur, le numéro et le nom du compte de réception sont obligatoires.");
   }
 
   const requester = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -38,12 +47,25 @@ export async function requestAid(userId: string, amount: number) {
   }
 
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
-  // Le taux est figé à la date de la demande : le modifier plus tard dans les
-  // paramètres n'affecte jamais les demandes déjà créées.
+  // Le taux ET la durée sont figés à la date de la demande : les modifier
+  // plus tard dans les paramètres n'affecte jamais les demandes déjà créées
+  // — le client garde exactement ce qu'il a vu et accepté au moment de sa
+  // demande.
   const amountDue = Math.round(amount * (1 + settings.serviceFeePercent / 100));
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + settings.defaultDurationDays);
 
   const request = await prisma.aidRequest.create({
-    data: { userId, amount, amountDue, status: "PENDING" },
+    data: {
+      userId,
+      amount,
+      amountDue,
+      dueDate,
+      receivingOperator,
+      receivingPhone,
+      receivingName,
+      status: "PENDING",
+    },
   });
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
@@ -56,23 +78,17 @@ export async function requestAid(userId: string, amount: number) {
   return request;
 }
 
-export async function acceptAidRequest(id: string, durationDays: number, adminId: string) {
-  const allowed = await prisma.allowedDuration.findUnique({ where: { days: durationDays } });
-  if (!allowed) {
-    throw new Error(`Durée ${durationDays} jours non autorisée`);
-  }
-
+export async function acceptAidRequest(id: string, adminId: string) {
+  // La durée et la date d'échéance sont déjà figées depuis la création de la
+  // demande (voir requestAid) — accepter ne fait plus que changer le statut.
   const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id } });
   if (existing.status !== "PENDING") {
     throw new Error(`Cette demande a déjà été traitée (statut actuel : ${existing.status})`);
   }
 
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + durationDays);
-
   const request = await prisma.aidRequest.update({
     where: { id },
-    data: { status: "ACCEPTED", dueDate },
+    data: { status: "ACCEPTED" },
   });
 
   await logAction({
@@ -81,13 +97,13 @@ export async function acceptAidRequest(id: string, durationDays: number, adminId
     entityType: "AidRequest",
     entityId: id,
     before: { status: existing.status },
-    after: { status: request.status, dueDate: request.dueDate, durationDays },
+    after: { status: request.status },
   });
 
   await notifyUser(
     request.userId,
     "aid_request_accepted",
-    `Votre demande de ${request.amount} FCFA a été acceptée. Remboursement attendu avant le ${dueDate.toLocaleDateString("fr-FR")}.`,
+    `Votre demande de ${request.amount} FCFA a été acceptée. Remboursement attendu avant le ${request.dueDate?.toLocaleDateString("fr-FR")}.`,
     request.id
   );
 
@@ -121,7 +137,7 @@ export async function rejectAidRequest(id: string, adminId: string) {
   return request;
 }
 
-export async function disburseAidRequest(id: string, adminId: string) {
+export async function disburseAidRequest(id: string, adminId: string, note?: string) {
   const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id } });
   if (existing.status !== "ACCEPTED") {
     throw new Error(`Impossible d'envoyer les fonds : statut actuel "${existing.status}" (doit être ACCEPTED)`);
@@ -131,11 +147,12 @@ export async function disburseAidRequest(id: string, adminId: string) {
 
   await logAction({
     adminId,
-    action: "aid_request_disburse",
+    action: "aid_request_disburse_manual",
     entityType: "AidRequest",
     entityId: id,
     before: { status: existing.status },
     after: { status: request.status },
+    note,
   });
 
   await notifyUser(
@@ -150,18 +167,19 @@ export async function disburseAidRequest(id: string, adminId: string) {
 
 /**
  * Décaissement automatique via MyPVit (GIVE_CHANGE, synchrone : le statut
- * final est dans la réponse, pas besoin d'attendre un webhook). En cas
- * d'échec, la demande reste "ACCEPTED" — l'admin peut réessayer ou basculer
- * sur l'envoi manuel (disburseAidRequest ci-dessus).
+ * final est dans la réponse, pas besoin d'attendre un webhook). Envoie
+ * toujours vers l'opérateur et le numéro choisis par le CLIENT lui-même à sa
+ * demande (jamais un choix de l'admin). En cas d'échec, la demande reste
+ * "ACCEPTED" — l'admin peut réessayer ou basculer sur l'envoi manuel
+ * (disburseAidRequest ci-dessus).
  */
-export async function disburseAidRequestViaMypvit(
-  id: string,
-  adminId: string,
-  operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY"
-) {
+export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
   const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id }, include: { user: true } });
   if (existing.status !== "ACCEPTED") {
     throw new Error(`Impossible d'envoyer les fonds : statut actuel "${existing.status}" (doit être ACCEPTED)`);
+  }
+  if (!existing.receivingOperator || !existing.receivingPhone) {
+    throw new Error("Cette demande n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
   }
 
   const reference = generateDisbursementReference();
@@ -172,7 +190,7 @@ export async function disburseAidRequestViaMypvit(
       userId: existing.userId,
       aidRequestId: existing.id,
       amount: existing.amount,
-      operator: operatorCode,
+      operator: existing.receivingOperator,
       status: "PENDING",
     },
   });
@@ -181,9 +199,9 @@ export async function disburseAidRequestViaMypvit(
   try {
     result = await giveChange({
       amount: existing.amount,
-      phone: existing.user.phone,
+      phone: existing.receivingPhone,
       reference,
-      operatorCode,
+      operatorCode: existing.receivingOperator as "AIRTEL_MONEY" | "MOOV_MONEY",
       freeInfo: `Décaissement aide AIFI ${existing.id}`,
     });
   } catch (err: any) {
@@ -212,21 +230,15 @@ export async function disburseAidRequestViaMypvit(
     entityType: "AidRequest",
     entityId: id,
     before: { status: existing.status },
-    after: { status: request.status, reference, operator: operatorCode },
+    after: { status: request.status, reference, operator: existing.receivingOperator },
   });
 
   await notifyUser(
     request.userId,
     "aid_request_disbursed",
-    `Les fonds de votre demande de ${request.amount} FCFA ont été envoyés automatiquement sur ton compte ${operatorCode === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}.`,
+    `Les fonds de votre demande de ${request.amount} FCFA ont été envoyés automatiquement sur ton compte ${existing.receivingOperator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}.`,
     request.id
   );
 
   return request;
-}
-
-/** Suggestion d'opérateur basée sur le numéro du client — l'admin peut la corriger. */
-export async function suggestDisbursementOperator(id: string): Promise<"AIRTEL_MONEY" | "MOOV_MONEY" | null> {
-  const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id }, include: { user: true } });
-  return detectOperator(existing.user.phone);
 }

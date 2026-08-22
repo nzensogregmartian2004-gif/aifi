@@ -41,12 +41,11 @@ export const adminUpdateUserSchema = z.object({
   ceiling: z.coerce.number().int().min(0).max(10_000_000).optional(),
 });
 
-export const acceptAidRequestSchema = z.object({
-  durationDays: z.coerce.number().int().positive().max(365),
-});
-
 export const requestAidSchema = z.object({
   amount,
+  receivingOperator: z.enum(["AIRTEL_MONEY", "MOOV_MONEY"]),
+  receivingPhone: z.string().min(6).max(20),
+  receivingName: z.string().min(2).max(100),
 });
 
 export const requestWithdrawalSchema = z.object({
@@ -91,10 +90,6 @@ export const settingsCeilingSchema = z.object({
   ceiling: z.coerce.number().int().positive(),
 });
 
-export const settingsDurationSchema = z.object({
-  days: z.coerce.number().int().positive().max(365),
-});
-
 export const settingsUpdateSchema = z.object({
   referralBonus: z.coerce.number().int().min(0).max(1_000_000).optional(),
   referralPoints: z.coerce.number().int().min(0).max(1000).optional(),
@@ -104,4 +99,5 @@ export const settingsUpdateSchema = z.object({
   latePenaltyPoints: z.coerce.number().int().min(0).max(1000).optional(),
   reminderDaysBefore: z.coerce.number().int().min(0).max(60).optional(),
   serviceFeePercent: z.coerce.number().min(0).max(500).optional(),
+  defaultDurationDays: z.coerce.number().int().min(1).max(365).optional(),
 });
