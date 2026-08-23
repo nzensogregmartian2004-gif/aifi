@@ -206,7 +206,7 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
       phone: existing.receivingPhone,
       reference,
       operatorCode: existing.receivingOperator as "AIRTEL_MONEY" | "MOOV_MONEY",
-      freeInfo: `Décaissement aide AIFI ${existing.id}`,
+      freeInfo: "AIFI",
     });
   } catch (err: any) {
     await prisma.paymentTransaction.update({

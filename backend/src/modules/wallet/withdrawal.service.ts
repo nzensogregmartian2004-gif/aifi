@@ -133,7 +133,7 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
       phone: withdrawal.receivingPhone,
       reference,
       operatorCode,
-      freeInfo: `Retrait AIFI ${withdrawal.id}`,
+      freeInfo: "AIFI",
     });
   } catch (err: any) {
     await prisma.paymentTransaction.update({

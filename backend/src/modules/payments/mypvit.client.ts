@@ -1,3 +1,4 @@
+import { EventEmitter } from "events";
 import { env, isMypvitConfigured } from "../../config/env";
 
 /**
@@ -9,7 +10,45 @@ import { env, isMypvitConfigured } from "../../config/env";
  *    final par webhook).
  *  - giveChange       : le marchand reverse de l'argent au client (GIVE_CHANGE,
  *    synchrone, statut final directement dans la réponse — pas de webhook).
+ *
+ * La clé secrète (renew-secret) peut elle-même arriver de façon asynchrone :
+ * selon la configuration du compte MyPVit, la clé n'est pas dans la réponse
+ * HTTP immédiate de /renew-secret mais envoyée séparément, en POST, sur
+ * l'URL webhook enregistrée sous le code "receptionUrlCode" (dashboard
+ * MyPVit, à créer manuellement — voir MYPVIT_RECEPTION_URL_CODE). On gère
+ * les deux cas : réponse immédiate si présente, sinon on attend ce webhook
+ * jusqu'à 15s (voir receiveSecretFromWebhook, appelée par la route
+ * /webhooks/mypvit/secret).
  */
+
+const secretEvents = new EventEmitter();
+secretEvents.setMaxListeners(50);
+
+/** Appelée par la route webhook quand MyPVit envoie la clé de façon asynchrone. */
+export function receiveSecretFromWebhook(secretValue: string, expiresInSeconds = 3000) {
+  cachedSecret = { value: secretValue, expiresAt: Date.now() + Math.max(expiresInSeconds - 300, 60) * 1000 };
+  secretEvents.emit("secret", secretValue);
+}
+
+function waitForWebhookSecret(timeoutMs = 15000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      secretEvents.off("secret", onSecret);
+      reject(
+        new Error(
+          "MyPVit n'a pas envoyé la clé secrète dans le délai imparti (15s). Vérifie que l'URL webhook de réception " +
+            "(POST /api/webhooks/mypvit/secret) est bien enregistrée dans ton espace MyPVit sous le code " +
+            "MYPVIT_RECEPTION_URL_CODE, et joignable depuis internet."
+        )
+      );
+    }, timeoutMs);
+    function onSecret(value: string) {
+      clearTimeout(timer);
+      resolve(value);
+    }
+    secretEvents.once("secret", onSecret);
+  });
+}
 
 let cachedSecret: { value: string; expiresAt: number } | null = null;
 
@@ -24,7 +63,13 @@ async function fetchNewSecret(): Promise<string> {
   const body = new URLSearchParams({
     operationAccountCode: env.mypvit.operationAccountCode,
     password: env.mypvit.apiPassword,
+    receptionUrlCode: env.mypvit.receptionUrlCode,
   });
+
+  // On commence à écouter AVANT d'envoyer la requête : si MyPVit répond très
+  // vite par webhook, on ne veut pas rater l'événement en le configurant trop tard.
+  const waiter = waitForWebhookSecret();
+  waiter.catch(() => {}); // évite un rejet de promesse non géré si la réponse immédiate suffit
 
   const res = await fetch(url, {
     method: "POST",
@@ -37,11 +82,15 @@ async function fetchNewSecret(): Promise<string> {
     throw new Error(`MyPVit renew-secret a échoué (${res.status}): ${text}`);
   }
 
-  const data = (await res.json()) as RenewSecretResponse;
-  // Marge de sécurité : on considère la clé expirée 5 minutes avant l'échéance réelle,
-  // pour ne jamais l'utiliser au tout dernier moment (latence réseau, horloge, etc.).
-  cachedSecret = { value: data.secret, expiresAt: Date.now() + (data.expires_in - 300) * 1000 };
-  return cachedSecret.value;
+  // Selon le compte, la clé peut arriver directement dans cette réponse...
+  const data = (await res.json().catch(() => null)) as RenewSecretResponse | null;
+  if (data?.secret) {
+    cachedSecret = { value: data.secret, expiresAt: Date.now() + ((data.expires_in || 3000) - 300) * 1000 };
+    return cachedSecret.value;
+  }
+
+  // ...sinon elle arrive de façon asynchrone sur le webhook de réception.
+  return waiter;
 }
 
 export async function getSecret(forceRenew = false): Promise<string> {

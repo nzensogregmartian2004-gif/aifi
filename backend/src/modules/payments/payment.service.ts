@@ -51,7 +51,7 @@ export async function startRepaymentPayment(
       phone,
       reference,
       operatorCode,
-      freeInfo: payerName ? `Remboursement AIFI ${aidRequestId.slice(0, 8)} — ${payerName}` : `Remboursement AIFI ${aidRequestId.slice(0, 8)}`,
+      freeInfo: "AIFI",
     });
 
     await prisma.paymentTransaction.update({

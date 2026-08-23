@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { handleMypvitCallback } from "../modules/payments/payment.service";
+import { receiveSecretFromWebhook } from "../modules/payments/mypvit.client";
 
 const router = Router();
 
@@ -26,6 +27,36 @@ router.post("/mypvit/callback", async (req, res) => {
       transactionId: req.body?.transactionId,
       responseCode: req.body?.code,
     });
+  }
+});
+
+/**
+ * Réception asynchrone de la clé secrète après un appel à /renew-secret.
+ * URL à enregistrer dans le dashboard MyPVit (menu URL), le code obtenu va
+ * dans MYPVIT_RECEPTION_URL_CODE. Le format exact du payload varie selon les
+ * comptes MyPVit (constaté sur des intégrations similaires) : on essaie
+ * plusieurs noms de champ, et le corps brut en dernier recours.
+ */
+router.post("/mypvit/secret", async (req, res) => {
+  try {
+    const body = req.body;
+    const secret =
+      (typeof body === "string" ? body : null) ||
+      body?.secret ||
+      body?.secretKey ||
+      body?.secret_key ||
+      body?.key;
+
+    if (secret && typeof secret === "string") {
+      receiveSecretFromWebhook(secret, body?.expires_in || body?.expiresIn);
+    } else {
+      console.warn("[mypvit secret webhook] payload reçu sans clé reconnaissable:", JSON.stringify(body));
+    }
+
+    res.status(200).json({ responseCode: 200, message: "Secret received" });
+  } catch (err: any) {
+    console.error("[mypvit secret webhook] erreur de traitement:", err);
+    res.status(200).json({ responseCode: 200 });
   }
 });
 
