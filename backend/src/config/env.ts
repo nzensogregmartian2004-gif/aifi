@@ -16,6 +16,10 @@ export const env = {
     operationAccountCode: process.env.MYPVIT_OPERATION_ACCOUNT_CODE ?? "",
     apiPassword: process.env.MYPVIT_API_PASSWORD ?? "",
     callbackUrlCode: process.env.MYPVIT_CALLBACK_URL_CODE ?? "",
+    // Code distinct exigé par MyPVit pour renew-secret ("receptionUrlCode"),
+    // différent du callback des paiements — à obtenir auprès du support
+    // MyPVit (erreur INVALID_SECRET_KEY_RECEPTION_URL_CODE sinon).
+    receptionUrlCode: process.env.MYPVIT_RECEPTION_URL_CODE ?? "",
     merchantOperationAccountCode: process.env.MYPVIT_MERCHANT_OPERATION_ACCOUNT_CODE ?? process.env.MYPVIT_OPERATION_ACCOUNT_CODE ?? "",
     // Chaque fonctionnalité a son propre code d'URL chez MyPVit (visible dans
     // ton espace marchand > APIs/Urls). Valeurs par défaut = tes identifiants
