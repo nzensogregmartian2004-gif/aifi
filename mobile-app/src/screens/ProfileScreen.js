@@ -44,19 +44,6 @@ export default function ProfileScreen({ navigation }) {
     >
       <ScreenTitle subtitle="Sécurité de ton compte">Mon profil</ScreenTitle>
 
-      <Card>
-        <Text style={styles.cardTitle}>Comment fonctionne AIFI ?</Text>
-        <Text style={styles.sectionText}>
-          Points, plafonds, demandes d'aide, remboursement, parrainage... Retrouve les explications à tout moment.
-        </Text>
-        <PrimaryButton
-          title="Revoir les explications"
-          variant="outline"
-          onPress={() => navigation.navigate("Onboarding")}
-          style={{ marginTop: 12 }}
-        />
-      </Card>
-
       {isAdmin && (
         <Card>
           <Text style={styles.cardTitle}>Paramètres</Text>

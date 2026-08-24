@@ -1,31 +1,36 @@
 import { Platform } from "react-native";
 
+// Nouvelle identité : bleu clair, lumineux et moderne (inspiration Verso),
+// à la place de l'ancien bleu marine/or plus terne. Les mêmes clés sont
+// gardées pour que tout l'écosystème de composants existant se repeigne
+// automatiquement, sans devoir toucher chaque écran un par un.
 export const colors = {
-  ink: "#142136",
-  ink2: "#1f3253",
-  inkSoft: "#5a6a86",
-  paper: "#eef0f4",
-  paper2: "#e3e7ee",
-  card: "#ffffff",
-  line: "#dbe0e8",
-  gold: "#b8862e",
-  goldSoft: "#f3e6cc",
-  success: "#2f6f4e",
-  successSoft: "#e2f0e8",
-  danger: "#9b3b3b",
-  dangerSoft: "#f6e4e4",
-  warn: "#c97a2b",
-  warnSoft: "#f8ead6",
+  ink: "#0F1B33",        // texte principal, fonds sombres (login, bannières)
+  ink2: "#1E3A6E",        // dégradé / profondeur sur les fonds sombres
+  inkSoft: "#64748B",     // texte secondaire, gris-bleu doux
+  paper: "#F4F8FE",       // fond général de l'app, légèrement teinté bleu
+  paper2: "#E8F0FD",      // fond secondaire (cartes creuses, zones actives)
+  card: "#FFFFFF",
+  line: "#DCE6F5",
+  gold: "#2F7DFB",        // ex-accent doré -> bleu vif, couleur d'action principale
+  goldSoft: "#E4EEFF",    // fond doux assorti à l'accent
+  accent2: "#5FC4E8",     // bleu ciel clair, pour dégradés / touches secondaires
+  success: "#1E9E6B",
+  successSoft: "#E1F7EE",
+  danger: "#E14B4B",
+  dangerSoft: "#FDEAEA",
+  warn: "#F2A93C",
+  warnSoft: "#FEF3E0",
   white: "#ffffff",
 };
 
 export const fonts = {
-  display: Platform.select({ ios: "Georgia", android: "serif", default: "serif" }),
+  display: Platform.select({ ios: "Avenir-Heavy", android: "sans-serif-medium", default: "System" }),
   body: Platform.select({ ios: "System", android: "sans-serif", default: "System" }),
   mono: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
 };
 
-export const radius = { sm: 8, md: 12, lg: 18, pill: 100 };
+export const radius = { sm: 10, md: 16, lg: 22, pill: 100 };
 
 export function money(n) {
   return new Intl.NumberFormat("fr-FR").format(Math.round(n || 0));

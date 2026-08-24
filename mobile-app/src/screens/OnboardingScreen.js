@@ -13,38 +13,36 @@ const SECTIONS = [
   {
     image: require("../../assets/onboarding/onb_1_bienvenue.png"),
     title: "Bienvenue sur AIFI",
-    text: "Ton cercle d'entraide, entre personnes de confiance. Simple, rapide, et automatisé de bout en bout.",
+    text: "Ton cercle d'entraide, entre personnes de confiance.",
   },
   {
     image: require("../../assets/onboarding/onb_2_confiance.png"),
     title: "Gagne en confiance",
-    text: "Chaque bon comportement te rapporte des points. Plus tu en as, plus ton plafond d'aide grandit.",
+    text: "Chaque bon comportement te rapporte des points et fait grandir ton plafond.",
   },
   {
     image: require("../../assets/onboarding/onb_3_avance.png"),
     title: "Demande en un instant",
-    text: "Choisis un montant sous ton plafond. Une fois ton compte validé, ta demande part directement à l'administrateur.",
+    text: "Choisis un montant, ta demande part directement à l'administrateur.",
   },
   {
     image: require("../../assets/onboarding/onb_4_rembourser.png"),
-    title: "Remboursement 100% automatique",
-    text: "Plus besoin de sortir de l'app : rembourse par Mobile Money ou carte, en un clic, directement depuis AIFI.",
+    title: "Remboursement automatique",
+    text: "Par Mobile Money ou carte, en un clic, directement depuis AIFI.",
   },
   {
     image: require("../../assets/onboarding/onb_5_parrainage.png"),
     title: "Parraine, gagne plus",
-    text: "Partage ton code. Dès que ton filleul est validé, tu touches un bonus et une commission sur ses remboursements.",
+    text: "Partage ton code, touche un bonus et une commission sur ses remboursements.",
   },
 ];
 
 function Slide({ item }) {
   return (
     <View style={styles.slide}>
-      <Image source={item.image} style={styles.image} resizeMode="cover" />
-      <View style={styles.textBlock}>
-        <Text style={styles.slideTitle}>{item.title}</Text>
-        <Text style={styles.slideText}>{item.text}</Text>
-      </View>
+      <Image source={item.image} style={styles.image} resizeMode="contain" />
+      <Text style={styles.slideTitle}>{item.title}</Text>
+      <Text style={styles.slideText}>{item.text}</Text>
     </View>
   );
 }
@@ -69,10 +67,12 @@ export default function OnboardingScreen({ navigation }) {
     setIndex(i);
   }
 
-  const isLast = index === SECTIONS.length - 1;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.paper }}>
+      <View style={styles.header}>
+        <Text style={styles.wordmark}>AIFI</Text>
+      </View>
+
       <FlatList
         ref={listRef}
         data={SECTIONS}
@@ -82,6 +82,7 @@ export default function OnboardingScreen({ navigation }) {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={onScrollEnd}
+        style={{ flexGrow: 0 }}
       />
 
       <View style={styles.dots}>
@@ -92,16 +93,16 @@ export default function OnboardingScreen({ navigation }) {
         ))}
       </View>
 
+      {/* Boutons toujours visibles, quel que soit l'écran du carrousel — pas
+          besoin d'attendre la dernière slide pour pouvoir agir. */}
       <View style={styles.footer}>
         {isAuthenticated ? (
           <PrimaryButton title="Retour" onPress={() => navigation.goBack()} />
-        ) : isLast ? (
-          <>
-            <PrimaryButton title="Créer un compte" onPress={() => finish("Register")} />
-            <PrimaryButton title="J'ai déjà un compte" variant="outline" onPress={() => finish("Login")} style={{ marginTop: 10 }} />
-          </>
         ) : (
-          <PrimaryButton title="Suivant" onPress={() => goTo(index + 1)} />
+          <>
+            <PrimaryButton title="Ouvrir un compte" onPress={() => finish("Register")} />
+            <PrimaryButton title="Me connecter" variant="outline" onPress={() => finish("Login")} style={{ marginTop: 10 }} />
+          </>
         )}
       </View>
     </View>
@@ -109,13 +110,14 @@ export default function OnboardingScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  slide: { width, flex: 1 },
-  image: { width, height: "58%" },
-  textBlock: { flex: 1, paddingHorizontal: 30, paddingTop: 26, alignItems: "center" },
-  slideTitle: { fontFamily: fonts.display, fontSize: 22, fontWeight: "700", color: colors.ink, textAlign: "center", marginBottom: 10 },
-  slideText: { fontSize: 14, color: colors.inkSoft, textAlign: "center", lineHeight: 20, maxWidth: 320 },
-  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 14 },
+  header: { alignItems: "center", paddingTop: 56, paddingBottom: 8 },
+  wordmark: { fontFamily: fonts.display, fontSize: 20, fontWeight: "800", color: colors.ink, letterSpacing: 3 },
+  slide: { width, alignItems: "center", paddingHorizontal: 28, paddingTop: 12 },
+  image: { width: width - 56, height: (width - 56) * 0.72 },
+  slideTitle: { fontFamily: fonts.display, fontSize: 22, fontWeight: "800", color: colors.ink, textAlign: "center", marginTop: 22, marginBottom: 8 },
+  slideText: { fontSize: 14.5, color: colors.inkSoft, textAlign: "center", lineHeight: 21, maxWidth: 300 },
+  dots: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginTop: 10, marginBottom: 4 },
   dot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.line, marginHorizontal: 4 },
-  dotActive: { backgroundColor: colors.gold, width: 20 },
-  footer: { paddingHorizontal: 20, paddingBottom: 20 },
+  dotActive: { backgroundColor: colors.gold, width: 22 },
+  footer: { paddingHorizontal: 24, paddingBottom: 24, paddingTop: 8 },
 });

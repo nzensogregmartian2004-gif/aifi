@@ -38,12 +38,12 @@ export function Seal({ points, size = 46 }) {
 
 export function PrimaryButton({ title, onPress, loading, disabled, variant = "gold", style }) {
   const bg = { gold: colors.gold, ink: colors.ink, success: colors.success, danger: colors.danger, outline: "transparent" }[variant];
-  const fg = variant === "gold" ? colors.ink : variant === "outline" ? colors.ink : colors.white;
+  const fg = variant === "outline" ? colors.gold : colors.white;
   return (
     <TouchableOpacity
       style={[
         styles.btn,
-        { backgroundColor: bg, borderWidth: variant === "outline" ? 1 : 0, borderColor: colors.line },
+        { backgroundColor: bg, borderWidth: variant === "outline" ? 1.5 : 0, borderColor: colors.gold },
         (disabled || loading) && { opacity: 0.5 },
         style,
       ]}
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: 8,
   },
-  title: { fontFamily: fonts.display, fontSize: 24, fontWeight: "700", color: colors.ink },
+  title: { fontFamily: fonts.display, fontSize: 24, fontWeight: "800", color: colors.ink },
   subtitle: { fontSize: 13.5, color: colors.inkSoft, marginTop: 4 },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, alignSelf: "flex-start" },
   badgeText: { fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.4 },
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   sealText: { fontFamily: fonts.mono, fontWeight: "700", color: colors.gold },
-  btn: { paddingVertical: 13, borderRadius: radius.sm, alignItems: "center", justifyContent: "center" },
+  btn: { paddingVertical: 14, borderRadius: radius.pill, alignItems: "center", justifyContent: "center" },
   btnText: { fontSize: 14.5, fontWeight: "700" },
   statTile: {
     backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,

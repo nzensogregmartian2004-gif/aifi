@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, ActivityIndicator } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NavigationContainer } from "@react-navigation/native";
@@ -7,7 +7,6 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
 import { colors } from "../theme";
-import { api } from "../api/client";
 
 import OnboardingScreen, { ONBOARDING_SEEN_KEY } from "../screens/OnboardingScreen";
 import LoginScreen from "../screens/LoginScreen";
@@ -20,6 +19,7 @@ import ReferralsScreen from "../screens/ReferralsScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import MessagesScreen from "../screens/MessagesScreen";
+import AideScreen from "../screens/AideScreen";
 
 import AdminDashboardScreen from "../screens/admin/AdminDashboardScreen";
 import AdminAidRequestsScreen from "../screens/admin/AdminAidRequestsScreen";
@@ -36,6 +36,7 @@ import AdminSettingsScreen from "../screens/admin/AdminSettingsScreen";
 
 const RootStack = createNativeStackNavigator();
 const AidStack = createNativeStackNavigator();
+const AideStack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const AdminUsersStack = createNativeStackNavigator();
 const AdminMessagesStack = createNativeStackNavigator();
@@ -57,8 +58,7 @@ const CLIENT_TAB_ICONS = {
   Aides: "cash-outline",
   Portefeuille: "wallet-outline",
   Parrainage: "people-outline",
-  Messages: "chatbubbles-outline",
-  Notifications: "notifications-outline",
+  Aide: "help-circle-outline",
   Profil: "person-circle-outline",
 };
 
@@ -72,6 +72,15 @@ function AidNavigator() {
       <AidStack.Screen name="AidRequestsList" component={AidRequestsScreen} />
       <AidStack.Screen name="NewAidRequest" component={NewAidRequestScreen} />
     </AidStack.Navigator>
+  );
+}
+
+function AideNavigator() {
+  return (
+    <AideStack.Navigator screenOptions={{ headerShown: false }}>
+      <AideStack.Screen name="AideHome" component={AideScreen} />
+      <AideStack.Screen name="AideMessages" component={MessagesScreen} />
+    </AideStack.Navigator>
   );
 }
 
@@ -155,23 +164,6 @@ function AdminTabs() {
 }
 
 function MainTabs() {
-  const [unread, setUnread] = useState(0);
-
-  const refreshUnread = useCallback(async () => {
-    try {
-      const { data } = await api.get("/notifications/unread-count");
-      setUnread(data.count);
-    } catch {
-      // silencieux
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshUnread();
-    const id = setInterval(refreshUnread, 30000);
-    return () => clearInterval(id);
-  }, [refreshUnread]);
-
   return (
     <Tab.Navigator
       screenOptions={{
@@ -180,26 +172,13 @@ function MainTabs() {
         tabBarInactiveTintColor: colors.inkSoft,
         tabBarStyle: { backgroundColor: colors.ink, borderTopWidth: 0, height: 64, paddingBottom: 10, paddingTop: 8 },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
-        tabBarBadgeStyle: { backgroundColor: colors.gold, color: colors.ink },
-      }}
-      screenListeners={{
-        tabPress: (e) => {
-          if (e.target?.startsWith("Notifications")) {
-            setTimeout(refreshUnread, 500);
-          }
-        },
       }}
     >
       <Tab.Screen name="Accueil" component={DashboardScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Accueil) }} />
       <Tab.Screen name="Aides" component={AidNavigator} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Aides) }} />
       <Tab.Screen name="Portefeuille" component={WalletScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Portefeuille) }} />
       <Tab.Screen name="Parrainage" component={ReferralsScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Parrainage) }} />
-      <Tab.Screen name="Messages" component={MessagesScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Messages) }} />
-      <Tab.Screen
-        name="Notifications"
-        component={NotificationsScreen}
-        options={{ tabBarBadge: unread > 0 ? unread : undefined, tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Notifications) }}
-      />
+      <Tab.Screen name="Aide" component={AideNavigator} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Aide) }} />
       <Tab.Screen name="Profil" component={ProfileScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Profil) }} />
     </Tab.Navigator>
   );
@@ -239,6 +218,7 @@ export default function RootNavigator() {
             <>
               <RootStack.Screen name="Main" component={MainTabs} />
               <RootStack.Screen name="Onboarding" component={OnboardingScreen} />
+              <RootStack.Screen name="Notifications" component={NotificationsScreen} />
             </>
           )
         ) : (
