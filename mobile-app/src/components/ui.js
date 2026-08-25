@@ -10,9 +10,9 @@ export function SectionLabel({ children }) {
   return <Text style={styles.sectionLabel}>{children}</Text>;
 }
 
-export function ScreenTitle({ children, subtitle }) {
+export function ScreenTitle({ children, subtitle, style }) {
   return (
-    <View style={{ marginBottom: 18 }}>
+    <View style={[{ marginBottom: 18 }, style]}>
       <Text style={styles.title}>{children}</Text>
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
     </View>

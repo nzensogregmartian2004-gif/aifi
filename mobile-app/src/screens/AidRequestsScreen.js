@@ -1,10 +1,12 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, FlatList, StyleSheet, RefreshControl, Modal, TextInput } from "react-native";
+import { View, Text, FlatList, StyleSheet, RefreshControl, Modal, TextInput, Pressable } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../api/client";
 import { Card, ScreenTitle, Badge, PrimaryButton, EmptyState } from "../components/ui";
 import ImageAttach from "../components/ImageAttach";
 import MobileMoneyPayModal from "../components/MobileMoneyPayModal";
+import AidDocumentationModal from "../components/AidDocumentationModal";
 import { colors, money } from "../theme";
 
 const REPAYABLE_STATUSES = ["ACCEPTED", "DISBURSED", "LATE"];
@@ -23,6 +25,7 @@ export default function AidRequestsScreen({ navigation }) {
   const [proof, setProof] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [docsVisible, setDocsVisible] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -96,7 +99,15 @@ export default function AidRequestsScreen({ navigation }) {
   return (
     <View style={{ flex: 1, backgroundColor: colors.paper, paddingTop: 60 }}>
       <View style={{ paddingHorizontal: 20 }}>
-        <ScreenTitle subtitle="Suis l'état de tes demandes et remboursements">Mes aides</ScreenTitle>
+        <View style={styles.headerRow}>
+          <ScreenTitle subtitle="Suis l'état de tes demandes et remboursements" style={{ flex: 1, marginBottom: 0 }}>
+            Mes aides
+          </ScreenTitle>
+          <Pressable style={styles.helpButton} onPress={() => setDocsVisible(true)} hitSlop={8}>
+            <Ionicons name="help" size={20} color={colors.ink} />
+          </Pressable>
+        </View>
+        <View style={{ height: 18 }} />
         {!!error && <Card><Text style={{ color: colors.danger }}>{error}</Text></Card>}
         <PrimaryButton title="Nouvelle demande" onPress={() => navigation.navigate("NewAidRequest")} style={{ marginBottom: 14 }} />
       </View>
@@ -242,11 +253,19 @@ export default function AidRequestsScreen({ navigation }) {
         onDone={() => load()}
         onFallbackManual={() => { const t = payTarget; setPayTarget(null); openDeclare(t); }}
       />
+
+      <AidDocumentationModal visible={docsVisible} onClose={() => setDocsVisible(false)} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  headerRow: { flexDirection: "row", alignItems: "flex-start" },
+  helpButton: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: "#fff",
+    alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: colors.line,
+    marginLeft: 12, marginTop: 2,
+  },
   meta: { fontSize: 13, color: colors.inkSoft, marginTop: 8 },
   metaFaint: { fontSize: 11.5, color: colors.inkSoft, marginTop: 6, opacity: 0.7 },
   remainingBadge: {

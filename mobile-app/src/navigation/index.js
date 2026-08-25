@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, ActivityIndicator } from "react-native";
+import { View, ActivityIndicator, Pressable, StyleSheet } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
@@ -19,7 +19,6 @@ import ReferralsScreen from "../screens/ReferralsScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import MessagesScreen from "../screens/MessagesScreen";
-import AideScreen from "../screens/AideScreen";
 
 import AdminDashboardScreen from "../screens/admin/AdminDashboardScreen";
 import AdminAidRequestsScreen from "../screens/admin/AdminAidRequestsScreen";
@@ -36,7 +35,6 @@ import AdminSettingsScreen from "../screens/admin/AdminSettingsScreen";
 
 const RootStack = createNativeStackNavigator();
 const AidStack = createNativeStackNavigator();
-const AideStack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const AdminUsersStack = createNativeStackNavigator();
 const AdminMessagesStack = createNativeStackNavigator();
@@ -58,7 +56,6 @@ const CLIENT_TAB_ICONS = {
   Aides: "cash-outline",
   Portefeuille: "wallet-outline",
   Parrainage: "people-outline",
-  Aide: "help-circle-outline",
   Profil: "person-circle-outline",
 };
 
@@ -66,21 +63,35 @@ function makeTabBarIcon(iconName) {
   return ({ color, size }) => <Ionicons name={iconName} size={size} color={color} />;
 }
 
+// Bouton central surélevé pour l'onglet Messages — c'est ici que se joue la
+// relation admin/client, donc on le distingue visuellement du reste de la
+// barre plutôt que d'en faire un simple onglet parmi d'autres.
+function CenterMessagesButton({ children, onPress, accessibilityState }) {
+  const focused = accessibilityState?.selected;
+  return (
+    <Pressable onPress={onPress} style={centerStyles.wrap}>
+      <View style={[centerStyles.bubble, focused && centerStyles.bubbleFocused]}>{children}</View>
+    </Pressable>
+  );
+}
+
+const centerStyles = StyleSheet.create({
+  wrap: { top: -18, alignItems: "center", justifyContent: "center" },
+  bubble: {
+    width: 56, height: 56, borderRadius: 28, backgroundColor: colors.gold,
+    alignItems: "center", justifyContent: "center",
+    shadowColor: colors.gold, shadowOpacity: 0.4, shadowRadius: 10, shadowOffset: { width: 0, height: 6 }, elevation: 6,
+    borderWidth: 4, borderColor: colors.paper,
+  },
+  bubbleFocused: { backgroundColor: colors.ink, borderColor: colors.paper },
+});
+
 function AidNavigator() {
   return (
     <AidStack.Navigator screenOptions={{ headerShown: false }}>
       <AidStack.Screen name="AidRequestsList" component={AidRequestsScreen} />
       <AidStack.Screen name="NewAidRequest" component={NewAidRequestScreen} />
     </AidStack.Navigator>
-  );
-}
-
-function AideNavigator() {
-  return (
-    <AideStack.Navigator screenOptions={{ headerShown: false }}>
-      <AideStack.Screen name="AideHome" component={AideScreen} />
-      <AideStack.Screen name="AideMessages" component={MessagesScreen} />
-    </AideStack.Navigator>
   );
 }
 
@@ -177,8 +188,16 @@ function MainTabs() {
       <Tab.Screen name="Accueil" component={DashboardScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Accueil) }} />
       <Tab.Screen name="Aides" component={AidNavigator} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Aides) }} />
       <Tab.Screen name="Portefeuille" component={WalletScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Portefeuille) }} />
+      <Tab.Screen
+        name="Messages"
+        component={MessagesScreen}
+        options={{
+          tabBarLabel: "",
+          tabBarIcon: () => <Ionicons name="chatbubble-ellipses" size={24} color={colors.white} />,
+          tabBarButton: (props) => <CenterMessagesButton {...props} />,
+        }}
+      />
       <Tab.Screen name="Parrainage" component={ReferralsScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Parrainage) }} />
-      <Tab.Screen name="Aide" component={AideNavigator} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Aide) }} />
       <Tab.Screen name="Profil" component={ProfileScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Profil) }} />
     </Tab.Navigator>
   );

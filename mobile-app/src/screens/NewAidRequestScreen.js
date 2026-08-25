@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, TextInput, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity } from "react-native";
+import { View, Text, TextInput, StyleSheet, Alert, ScrollView, KeyboardAvoidingView, Platform, TouchableOpacity, Image, Pressable } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { Card, ScreenTitle, PrimaryButton } from "../components/ui";
-import { colors, money } from "../theme";
+import { Card, PrimaryButton } from "../components/ui";
+import { colors, money, fonts } from "../theme";
 
 const OPERATORS = [
   { code: "AIRTEL_MONEY", label: "Airtel Money" },
@@ -22,6 +23,7 @@ export default function NewAidRequestScreen({ navigation }) {
   const [receivingName, setReceivingName] = useState(user?.name || "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [unread, setUnread] = useState(0);
 
   // Toujours relu à l'ouverture de l'écran — si l'admin change le taux ou la
   // grille des paliers dans Paramètres, le client voit la nouvelle valeur
@@ -31,6 +33,7 @@ export default function NewAidRequestScreen({ navigation }) {
       api.get("/client/dashboard").then(({ data }) => setAvailable(data.ceilingAvailable)).catch(() => {});
       api.get("/client/settings").then(({ data }) => setFeePercent(data.serviceFeePercent)).catch(() => {});
       api.get("/client/duration-tiers").then(({ data }) => setTiers(data)).catch(() => {});
+      api.get("/notifications/unread-count").then(({ data }) => setUnread(data.count)).catch(() => {});
     }, [])
   );
 
@@ -85,11 +88,29 @@ export default function NewAidRequestScreen({ navigation }) {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.paper }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 40 }}>
-        <ScreenTitle subtitle="Le montant demandé ne peut pas dépasser ton plafond disponible.">
-          Nouvelle demande d'aide
-        </ScreenTitle>
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+        <View style={styles.hero}>
+          <Image source={require("../../assets/onboarding/onb_3_avance.png")} style={styles.heroImage} resizeMode="cover" />
+          <View style={styles.heroTopRow}>
+            <Pressable style={styles.heroIconBtn} onPress={() => navigation.goBack()} hitSlop={8}>
+              <Ionicons name="arrow-back" size={20} color="#fff" />
+            </Pressable>
+            <Pressable style={styles.heroIconBtn} onPress={() => navigation.navigate("Notifications")} hitSlop={8}>
+              <Ionicons name="notifications-outline" size={20} color="#fff" />
+              {unread > 0 && (
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{unread > 9 ? "9+" : unread}</Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
+          <View style={styles.heroTextBox}>
+            <Text style={styles.heroTitle}>Nouvelle demande d'aide</Text>
+            <Text style={styles.heroSubtitle}>Le montant demandé ne peut pas dépasser ton plafond disponible.</Text>
+          </View>
+        </View>
 
+        <View style={{ paddingHorizontal: 20, paddingTop: 20 }}>
         {available !== null && (
           <Card>
             <Text style={styles.label}>Plafond disponible</Text>
@@ -183,12 +204,31 @@ export default function NewAidRequestScreen({ navigation }) {
         </Text>
 
         <PrimaryButton title="Envoyer la demande" onPress={submit} loading={loading} style={{ marginTop: 20 }} />
+        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  hero: { height: 190, backgroundColor: colors.ink },
+  heroImage: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width: "100%", height: "100%" },
+  heroTopRow: {
+    flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 20,
+    paddingTop: 54,
+  },
+  heroIconBtn: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(15,27,51,0.45)",
+    alignItems: "center", justifyContent: "center",
+  },
+  badge: {
+    position: "absolute", top: -3, right: -3, backgroundColor: colors.danger,
+    borderRadius: 9, minWidth: 18, height: 18, alignItems: "center", justifyContent: "center", paddingHorizontal: 3,
+  },
+  badgeText: { color: "#fff", fontSize: 10, fontWeight: "800" },
+  heroTextBox: { position: "absolute", left: 20, right: 20, bottom: 18 },
+  heroTitle: { fontFamily: fonts.display, fontSize: 22, fontWeight: "800", color: "#fff" },
+  heroSubtitle: { fontSize: 12.5, color: "#dbe4f5", marginTop: 4, lineHeight: 17 },
   label: { fontSize: 11.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6, marginTop: 12 },
   available: { fontSize: 22, fontWeight: "700", color: colors.gold },
   input: {

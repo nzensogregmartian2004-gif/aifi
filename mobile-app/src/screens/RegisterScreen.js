@@ -6,16 +6,11 @@ import { PrimaryButton } from "../components/ui";
 import { colors, fonts } from "../theme";
 import { apiErrorMessage } from "../api/client";
 
-function AnimatedField({ label, children, focused }) {
-  const anim = useRef(new Animated.Value(0)).current;
-  React.useEffect(() => {
-    Animated.timing(anim, { toValue: focused ? 1 : 0, duration: 180, useNativeDriver: false }).start();
-  }, [focused]);
-  const borderColor = anim.interpolate({ inputRange: [0, 1], outputRange: [colors.line, colors.gold] });
+function Field({ label, children }) {
   return (
-    <View style={{ marginTop: 18 }}>
+    <View style={{ marginTop: 16 }}>
       <Text style={styles.label}>{label}</Text>
-      <Animated.View style={[styles.fieldBox, { borderColor }]}>{children}</Animated.View>
+      <View style={styles.fieldBox}>{children}</View>
     </View>
   );
 }
@@ -34,54 +29,46 @@ function PasswordRule({ met, text }) {
   );
 }
 
-const STEPS = ["Tes informations", "Ton mot de passe"];
-
 export default function RegisterScreen({ navigation, route }) {
   const { register, login } = useAuth();
-  const [step, setStep] = useState(0);
-  const [name, setName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [referralCode, setReferralCode] = useState(route?.params?.referralCode || "");
-  const [focusedField, setFocusedField] = useState(null);
+  const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const slide = useRef(new Animated.Value(0)).current;
-
-  function animateTo(nextStep) {
-    Animated.timing(slide, { toValue: 1, duration: 140, useNativeDriver: true }).start(() => {
-      setStep(nextStep);
-      slide.setValue(0);
-      Animated.timing(slide, { toValue: 0, duration: 220, useNativeDriver: true }).start();
-    });
-  }
-
-  function goNext() {
-    setError("");
-    if (!name.trim() || !phone.trim()) {
-      return setError("Le nom et le numéro sont obligatoires.");
-    }
-    animateTo(1);
-  }
+  const fade = useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    Animated.timing(fade, { toValue: 1, duration: 380, useNativeDriver: true }).start();
+  }, []);
 
   const hasMinLength = password.length >= 6;
   const hasLetterAndNumber = /[a-zA-Z]/.test(password) && /[0-9]/.test(password);
 
   async function handleRegister() {
     setError("");
+    if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
+      return setError("Le prénom, le nom et le numéro sont obligatoires.");
+    }
     if (!hasMinLength) {
       return setError("Le mot de passe doit contenir au moins 6 caractères.");
     }
+    if (!acceptTerms) {
+      return setError("Tu dois accepter les Conditions générales pour continuer.");
+    }
     setLoading(true);
     try {
-      await register(name, phone, password, referralCode);
+      const fullName = `${firstName.trim()} ${lastName.trim()}`;
+      await register(fullName, phone.trim(), password, referralCode);
       // Connexion automatique juste après l'inscription : le client arrive
       // directement sur son tableau de bord (en mode restreint tant que son
       // compte n'est pas validé par un administrateur), plutôt que d'être
       // renvoyé sur l'écran de connexion.
-      await login(phone, password);
+      await login(phone.trim(), password);
     } catch (err) {
       setError(apiErrorMessage(err));
     } finally {
@@ -89,107 +76,91 @@ export default function RegisterScreen({ navigation, route }) {
     }
   }
 
-  const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [0, 16] });
-  const opacity = slide.interpolate({ inputRange: [0, 1], outputRange: [1, 0] });
-
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.paper }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-      <View style={styles.header}>
-        {step === 1 ? (
-          <Pressable onPress={() => animateTo(0)} hitSlop={10}>
-            <Ionicons name="arrow-back" size={22} color={colors.ink} />
-          </Pressable>
-        ) : (
-          <View style={{ width: 22 }} />
-        )}
-        <Text style={styles.wordmark}>AIFI</Text>
-        <View style={{ width: 22 }} />
-      </View>
-
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: step === 0 ? "50%" : "100%" }]} />
-      </View>
-
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Animated.View style={{ opacity, transform: [{ translateX }] }}>
-          {step === 0 ? (
-            <>
-              <Text style={styles.title}>Créons ton compte</Text>
-              <Text style={styles.subtitle}>Quelques informations pour commencer.</Text>
+        <Animated.View style={{ opacity: fade, width: "100%", alignItems: "center" }}>
+          <Text style={styles.wordmark}>AIFI</Text>
 
-              {!!error && <Text style={styles.error}>{error}</Text>}
+          <View style={styles.card}>
+            <Text style={styles.title}>Créons ton compte</Text>
+            <Text style={styles.subtitle}>
+              Parle-nous un peu de toi <Text style={styles.subtitleItalic}>(les infos de ta pièce d'identité)</Text>.
+            </Text>
 
-              <AnimatedField label="Nom complet" focused={focusedField === "name"}>
-                <TextInput
-                  style={styles.input}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Nom et prénom"
-                  placeholderTextColor="#A3AEC2"
-                  onFocus={() => setFocusedField("name")}
-                  onBlur={() => setFocusedField(null)}
-                />
-              </AnimatedField>
+            {!!error && <Text style={styles.error}>{error}</Text>}
 
-              <AnimatedField label="Téléphone" focused={focusedField === "phone"}>
-                <TextInput
-                  style={styles.input}
-                  value={phone}
-                  onChangeText={setPhone}
-                  keyboardType="phone-pad"
-                  placeholder="ex : 077000000"
-                  placeholderTextColor="#A3AEC2"
-                  onFocus={() => setFocusedField("phone")}
-                  onBlur={() => setFocusedField(null)}
-                />
-              </AnimatedField>
+            <Field label="Prénom">
+              <TextInput
+                style={styles.input}
+                value={firstName}
+                onChangeText={setFirstName}
+                placeholder="ex : Nze"
+                placeholderTextColor="#A3AEC2"
+              />
+            </Field>
 
-              <PrimaryButton title="Continuer" onPress={goNext} style={{ marginTop: 28 }} />
-            </>
-          ) : (
-            <>
-              <Text style={styles.title}>Merci {name.split(" ")[0] || ""},</Text>
-              <Text style={styles.subtitle}>Choisis un mot de passe pour ton compte.</Text>
+            <Field label="Nom">
+              <TextInput
+                style={styles.input}
+                value={lastName}
+                onChangeText={setLastName}
+                placeholder="ex : Nso"
+                placeholderTextColor="#A3AEC2"
+              />
+            </Field>
 
-              {!!error && <Text style={styles.error}>{error}</Text>}
+            <Field label="Numéro de téléphone">
+              <TextInput
+                style={styles.input}
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="phone-pad"
+                placeholder="ex : 077000000"
+                placeholderTextColor="#A3AEC2"
+              />
+            </Field>
 
-              <AnimatedField label="Mot de passe" focused={focusedField === "password"}>
-                <TextInput
-                  style={[styles.input, { flex: 1 }]}
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!showPassword}
-                  placeholder="••••••••"
-                  placeholderTextColor="#A3AEC2"
-                  onFocus={() => setFocusedField("password")}
-                  onBlur={() => setFocusedField(null)}
-                />
-                <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={10} style={{ paddingHorizontal: 4 }}>
-                  <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.inkSoft} />
-                </Pressable>
-              </AnimatedField>
+            <Field label="Mot de passe">
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                placeholder="••••••••"
+                placeholderTextColor="#A3AEC2"
+              />
+              <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={10} style={{ paddingHorizontal: 4 }}>
+                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.inkSoft} />
+              </Pressable>
+            </Field>
+            <View style={{ marginTop: 6 }}>
+              <PasswordRule met={hasMinLength} text="Au moins 6 caractères" />
+              <PasswordRule met={hasLetterAndNumber} text="Un mélange de lettres et de chiffres (recommandé)" />
+            </View>
 
-              <View style={{ marginTop: 4 }}>
-                <PasswordRule met={hasMinLength} text="Au moins 6 caractères" />
-                <PasswordRule met={hasLetterAndNumber} text="Un mélange de lettres et de chiffres (recommandé)" />
+            <Field label="Code de parrainage (facultatif)">
+              <TextInput
+                style={styles.input}
+                value={referralCode}
+                onChangeText={setReferralCode}
+                autoCapitalize="characters"
+                placeholder="ex : A1B2C3D4"
+                placeholderTextColor="#A3AEC2"
+              />
+            </Field>
+
+            <Pressable style={styles.termsRow} onPress={() => setAcceptTerms((v) => !v)} hitSlop={6}>
+              <View style={[styles.checkbox, acceptTerms && styles.checkboxChecked]}>
+                {acceptTerms && <Ionicons name="checkmark" size={14} color="#fff" />}
               </View>
+              <Text style={styles.termsText}>
+                J'accepte les <Text style={styles.termsLink}>Conditions générales</Text>
+              </Text>
+            </Pressable>
 
-              <AnimatedField label="Code de parrainage (facultatif)" focused={focusedField === "referral"}>
-                <TextInput
-                  style={styles.input}
-                  value={referralCode}
-                  onChangeText={setReferralCode}
-                  autoCapitalize="characters"
-                  placeholder="ex : A1B2C3D4"
-                  placeholderTextColor="#A3AEC2"
-                  onFocus={() => setFocusedField("referral")}
-                  onBlur={() => setFocusedField(null)}
-                />
-              </AnimatedField>
-
-              <PrimaryButton title="Créer mon compte" onPress={handleRegister} loading={loading} style={{ marginTop: 28 }} />
-            </>
-          )}
+            <PrimaryButton title="Continuer" onPress={handleRegister} loading={loading} style={{ marginTop: 22 }} />
+          </View>
 
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>Tu as déjà un compte ? </Text>
@@ -204,24 +175,31 @@ export default function RegisterScreen({ navigation, route }) {
 }
 
 const styles = StyleSheet.create({
-  header: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingHorizontal: 20, paddingTop: 56, paddingBottom: 14,
+  container: { flexGrow: 1, alignItems: "center", padding: 22, paddingTop: 64, paddingBottom: 40 },
+  wordmark: { fontFamily: fonts.display, fontSize: 18, fontWeight: "800", color: colors.ink, letterSpacing: 5, marginBottom: 22 },
+  card: {
+    width: "100%", backgroundColor: colors.card, borderRadius: 26, padding: 24,
+    shadowColor: colors.ink, shadowOpacity: 0.08, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 3,
   },
-  wordmark: { fontFamily: fonts.display, fontSize: 16, fontWeight: "800", color: colors.ink, letterSpacing: 3 },
-  progressTrack: { height: 3, backgroundColor: colors.line, marginHorizontal: 20, borderRadius: 2, overflow: "hidden" },
-  progressFill: { height: "100%", backgroundColor: colors.gold, borderRadius: 2 },
-  container: { flexGrow: 1, padding: 24, paddingTop: 20 },
-  title: { fontFamily: fonts.display, fontSize: 23, fontWeight: "800", color: colors.ink },
-  subtitle: { color: colors.inkSoft, fontSize: 14, marginTop: 4 },
+  title: { fontFamily: fonts.display, fontSize: 22, fontWeight: "800", color: colors.ink },
+  subtitle: { color: colors.inkSoft, fontSize: 13.5, marginTop: 6, lineHeight: 18 },
+  subtitleItalic: { fontStyle: "italic" },
   label: { fontSize: 11.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 },
   fieldBox: {
-    flexDirection: "row", alignItems: "center", borderWidth: 1.5, borderRadius: 14,
-    backgroundColor: "#fff", paddingHorizontal: 14,
+    flexDirection: "row", alignItems: "center", borderWidth: 1.5, borderColor: colors.line, borderRadius: 14,
+    backgroundColor: colors.paper, paddingHorizontal: 14,
   },
-  input: { flex: 1, paddingVertical: 14, fontSize: 15.5, color: colors.ink },
-  footerRow: { flexDirection: "row", justifyContent: "center", marginTop: 26 },
+  input: { flex: 1, paddingVertical: 13, fontSize: 15, color: colors.ink },
+  termsRow: { flexDirection: "row", alignItems: "center", marginTop: 18 },
+  checkbox: {
+    width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: colors.line,
+    alignItems: "center", justifyContent: "center", marginRight: 10,
+  },
+  checkboxChecked: { backgroundColor: colors.gold, borderColor: colors.gold },
+  termsText: { fontSize: 13, color: colors.inkSoft, flex: 1 },
+  termsLink: { color: colors.gold, fontWeight: "700" },
+  footerRow: { flexDirection: "row", justifyContent: "center", marginTop: 22 },
   footerText: { color: colors.inkSoft, fontSize: 14 },
   footerLink: { color: colors.gold, fontSize: 14, fontWeight: "700" },
-  error: { color: colors.danger, backgroundColor: colors.dangerSoft, padding: 10, borderRadius: 10, marginTop: 16, fontSize: 13 },
+  error: { color: colors.danger, backgroundColor: colors.dangerSoft, padding: 10, borderRadius: 10, marginTop: 14, fontSize: 13 },
 });
