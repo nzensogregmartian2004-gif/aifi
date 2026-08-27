@@ -6,6 +6,15 @@ function required(key: string): string {
   return value;
 }
 
+/**
+ * Les 3 moyens de paiement MyPVit. Confirmé le 27/08 avec Petit : ce sont
+ * 3 comptes marchands MyPVit distincts (donc 3 operationAccountCode
+ * différents), mais qui partagent le MÊME mot de passe API et les MÊMES
+ * codes d'URL (renew-secret, rest, status, kyc...) — seul operationAccountCode
+ * change d'un compte à l'autre.
+ */
+export type OperatorCode = "AIRTEL_MONEY" | "MOOV_MONEY" | "VISA_MASTERCARD";
+
 export const env = {
   jwtSecret: required("JWT_SECRET"),
   port: process.env.PORT ?? "4000",
@@ -13,17 +22,26 @@ export const env = {
     // Pas de /v2 ici : certains endpoints l'ont dans leur propre chemin, d'autres non
     // (voir urlCodes ci-dessous, copié tel quel depuis l'espace MyPVit de Petit).
     baseUrl: process.env.MYPVIT_BASE_URL ?? "https://api.mypvit.pro",
-    operationAccountCode: process.env.MYPVIT_OPERATION_ACCOUNT_CODE ?? "",
     apiPassword: process.env.MYPVIT_API_PASSWORD ?? "",
     callbackUrlCode: process.env.MYPVIT_CALLBACK_URL_CODE ?? "",
     // Code distinct exigé par MyPVit pour renew-secret ("receptionUrlCode"),
     // différent du callback des paiements — à obtenir auprès du support
     // MyPVit (erreur INVALID_SECRET_KEY_RECEPTION_URL_CODE sinon).
     receptionUrlCode: process.env.MYPVIT_RECEPTION_URL_CODE ?? "",
-    merchantOperationAccountCode: process.env.MYPVIT_MERCHANT_OPERATION_ACCOUNT_CODE ?? process.env.MYPVIT_OPERATION_ACCOUNT_CODE ?? "",
+    // Un operationAccountCode par compte marchand. Chaque appel (renew-secret,
+    // /rest...) doit utiliser le code du compte correspondant à l'opérateur
+    // utilisé pour CETTE opération précise — ne jamais mélanger un secret
+    // obtenu pour un compte avec le operationAccountCode d'un autre compte
+    // (c'est exactement ce qui causait l'AUTHENTICATION_FAILED du 27/08).
+    accounts: {
+      AIRTEL_MONEY: process.env.MYPVIT_OPERATION_ACCOUNT_CODE_AIRTEL ?? "",
+      MOOV_MONEY: process.env.MYPVIT_OPERATION_ACCOUNT_CODE_MOOV ?? "",
+      VISA_MASTERCARD: process.env.MYPVIT_OPERATION_ACCOUNT_CODE_CARD ?? "",
+    } as Record<OperatorCode, string>,
     // Chaque fonctionnalité a son propre code d'URL chez MyPVit (visible dans
     // ton espace marchand > APIs/Urls). Valeurs par défaut = tes identifiants
     // TEST fournis le 29/07 — à remplacer par les valeurs PROD avant mise en ligne.
+    // Communs aux 3 comptes (confirmé le 27/08).
     urlCodes: {
       renewSecret: process.env.MYPVIT_URLCODE_RENEW_SECRET ?? "9VCHPQMFO4542SUG",
       rest: process.env.MYPVIT_URLCODE_REST ?? "0E8DCB0QOXRCNFPM", // v2
@@ -40,7 +58,19 @@ export const env = {
   },
 };
 
-export function isMypvitConfigured() {
+/**
+ * Sans argument : vrai si MyPVit est utilisable pour AU MOINS un compte
+ * (sert au démarrage du scheduler). Avec un operatorCode précis : vrai
+ * uniquement si CE compte a son operationAccountCode renseigné.
+ */
+export function isMypvitConfigured(operatorCode?: OperatorCode) {
   const c = env.mypvit;
-  return !!(c.operationAccountCode && c.apiPassword && c.callbackUrlCode);
+  if (!c.apiPassword || !c.callbackUrlCode) return false;
+  if (operatorCode) return !!c.accounts[operatorCode];
+  return Object.values(c.accounts).some(Boolean);
+}
+
+/** Liste les opérateurs pour lesquels un operationAccountCode est configuré. */
+export function configuredOperators(): OperatorCode[] {
+  return (Object.keys(env.mypvit.accounts) as OperatorCode[]).filter((op) => !!env.mypvit.accounts[op]);
 }

@@ -118,6 +118,7 @@ model AidRequest {
   receivingPhone       String?
   receivingName        String?
   reminderSentAt       DateTime?
+  dueTodayReminderSentAt DateTime?
   latePenaltyAppliedAt DateTime?
   createdAt            DateTime          @default(now())
 

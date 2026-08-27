@@ -1,5 +1,5 @@
 import { EventEmitter } from "events";
-import { env, isMypvitConfigured } from "../../config/env";
+import { env, isMypvitConfigured, OperatorCode } from "../../config/env";
 
 /**
  * Client pour l'API MyPVit (https://docs.mypvit.pro).
@@ -24,21 +24,59 @@ import { env, isMypvitConfigured } from "../../config/env";
 const secretEvents = new EventEmitter();
 secretEvents.setMaxListeners(50);
 
-/** Appelée par la route webhook quand MyPVit envoie la clé de façon asynchrone. */
-export function receiveSecretFromWebhook(secretValue: string, expiresInSeconds = 3000) {
-  cachedSecret = { value: secretValue, expiresAt: Date.now() + Math.max(expiresInSeconds - 300, 60) * 1000 };
-  secretEvents.emit("secret", secretValue);
+// Comptes actuellement en attente d'un secret par webhook, dans l'ordre
+// d'envoi de la demande — sert de repli quand le webhook MyPVit ne renvoie
+// pas le operationAccountCode concerné (voir receiveSecretFromWebhook).
+const pendingAccounts: OperatorCode[] = [];
+
+// Un secret mis en cache PAR compte : le secret d'un compte Airtel ne doit
+// jamais être envoyé avec le operationAccountCode du compte Moov (ou Carte),
+// sous peine d'AUTHENTICATION_FAILED — c'est le bug du 27/08.
+const cachedSecrets: Partial<Record<OperatorCode, { value: string; expiresAt: number }>> = {};
+
+/**
+ * Appelée par la route webhook quand MyPVit envoie la clé de façon
+ * asynchrone. `accountCode` est le operationAccountCode renvoyé par MyPVit
+ * dans le payload du webhook, s'il est présent — permet de router le secret
+ * vers le bon compte quand plusieurs renouvellements sont en attente en même
+ * temps. S'il est absent, on retombe sur la plus ancienne demande en attente.
+ */
+export function receiveSecretFromWebhook(secretValue: string, expiresInSeconds = 3000, accountCode?: string | null) {
+  const expiresAt = Date.now() + Math.max(expiresInSeconds - 300, 60) * 1000;
+
+  let operatorCode: OperatorCode | undefined = accountCode
+    ? (Object.keys(env.mypvit.accounts) as OperatorCode[]).find((op) => env.mypvit.accounts[op] === accountCode)
+    : undefined;
+
+  if (operatorCode) {
+    const idx = pendingAccounts.indexOf(operatorCode);
+    if (idx !== -1) pendingAccounts.splice(idx, 1);
+  } else {
+    operatorCode = pendingAccounts.shift();
+  }
+
+  if (!operatorCode) {
+    console.warn("[mypvit] secret reçu par webhook sans demande en attente correspondante, ignoré.");
+    return;
+  }
+
+  cachedSecrets[operatorCode] = { value: secretValue, expiresAt };
+  secretEvents.emit(`secret:${operatorCode}`, secretValue);
 }
 
-function waitForWebhookSecret(timeoutMs = 15000): Promise<string> {
+function waitForWebhookSecret(operatorCode: OperatorCode, timeoutMs = 15000): Promise<string> {
+  pendingAccounts.push(operatorCode);
+  const eventName = `secret:${operatorCode}`;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      secretEvents.off("secret", onSecret);
+      secretEvents.off(eventName, onSecret);
+      const idx = pendingAccounts.indexOf(operatorCode);
+      if (idx !== -1) pendingAccounts.splice(idx, 1);
       reject(
         new Error(
-          "MyPVit n'a pas envoyé la clé secrète dans le délai imparti (15s). Vérifie que l'URL webhook de réception " +
-            "(POST /api/webhooks/mypvit/secret) est bien enregistrée dans ton espace MyPVit sous le code " +
-            "MYPVIT_RECEPTION_URL_CODE, et joignable depuis internet."
+          `MyPVit n'a pas envoyé la clé secrète (compte ${operatorCode}) dans le délai imparti (15s). Vérifie que l'URL ` +
+            "webhook de réception (POST /api/webhooks/mypvit/secret) est bien enregistrée dans ton espace MyPVit sous le " +
+            "code MYPVIT_RECEPTION_URL_CODE, et joignable depuis internet."
         )
       );
     }, timeoutMs);
@@ -46,11 +84,9 @@ function waitForWebhookSecret(timeoutMs = 15000): Promise<string> {
       clearTimeout(timer);
       resolve(value);
     }
-    secretEvents.once("secret", onSecret);
+    secretEvents.once(eventName, onSecret);
   });
 }
-
-let cachedSecret: { value: string; expiresAt: number } | null = null;
 
 interface RenewSecretResponse {
   operation_account_code: string;
@@ -58,17 +94,22 @@ interface RenewSecretResponse {
   expires_in: number;
 }
 
-async function fetchNewSecret(): Promise<string> {
+async function fetchNewSecret(operatorCode: OperatorCode): Promise<string> {
+  const accountCode = env.mypvit.accounts[operatorCode];
+  if (!accountCode) {
+    throw new Error(`Aucun operationAccountCode configuré pour ${operatorCode}.`);
+  }
+
   const url = `${env.mypvit.baseUrl}/v2/${env.mypvit.urlCodes.renewSecret}/renew-secret`;
   const body = new URLSearchParams({
-    operationAccountCode: env.mypvit.operationAccountCode,
+    operationAccountCode: accountCode,
     password: env.mypvit.apiPassword,
     receptionUrlCode: env.mypvit.receptionUrlCode,
   });
 
   // On commence à écouter AVANT d'envoyer la requête : si MyPVit répond très
   // vite par webhook, on ne veut pas rater l'événement en le configurant trop tard.
-  const waiter = waitForWebhookSecret();
+  const waiter = waitForWebhookSecret(operatorCode);
   waiter.catch(() => {}); // évite un rejet de promesse non géré si la réponse immédiate suffit
 
   const res = await fetch(url, {
@@ -79,28 +120,33 @@ async function fetchNewSecret(): Promise<string> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`MyPVit renew-secret a échoué (${res.status}): ${text}`);
+    throw new Error(`MyPVit renew-secret a échoué pour ${operatorCode} (${res.status}): ${text}`);
   }
 
   // Selon le compte, la clé peut arriver directement dans cette réponse...
   const data = (await res.json().catch(() => null)) as RenewSecretResponse | null;
   if (data?.secret) {
-    cachedSecret = { value: data.secret, expiresAt: Date.now() + ((data.expires_in || 3000) - 300) * 1000 };
-    return cachedSecret.value;
+    // Résolue immédiatement : on retire la demande en attente pour qu'un
+    // webhook tardif ne vienne pas la consommer par erreur plus tard.
+    const idx = pendingAccounts.indexOf(operatorCode);
+    if (idx !== -1) pendingAccounts.splice(idx, 1);
+    cachedSecrets[operatorCode] = { value: data.secret, expiresAt: Date.now() + ((data.expires_in || 3000) - 300) * 1000 };
+    return cachedSecrets[operatorCode]!.value;
   }
 
   // ...sinon elle arrive de façon asynchrone sur le webhook de réception.
   return waiter;
 }
 
-export async function getSecret(forceRenew = false): Promise<string> {
-  if (!isMypvitConfigured()) {
-    throw new Error("MyPVit n'est pas configuré (variables d'environnement manquantes)");
+export async function getSecret(operatorCode: OperatorCode, forceRenew = false): Promise<string> {
+  if (!isMypvitConfigured(operatorCode)) {
+    throw new Error(`MyPVit n'est pas configuré pour ${operatorCode} (variable d'environnement manquante)`);
   }
-  if (!forceRenew && cachedSecret && cachedSecret.expiresAt > Date.now()) {
-    return cachedSecret.value;
+  const cached = cachedSecrets[operatorCode];
+  if (!forceRenew && cached && cached.expiresAt > Date.now()) {
+    return cached.value;
   }
-  return fetchNewSecret();
+  return fetchNewSecret(operatorCode);
 }
 
 /** Détecte l'opérateur mobile money à partir du préfixe du numéro gabonais. */
@@ -139,7 +185,7 @@ interface InitiatePaymentResponse {
 }
 
 export async function initiatePayment(params: InitiatePaymentParams, retry = true): Promise<InitiatePaymentResponse> {
-  const secret = await getSecret();
+  const secret = await getSecret(params.operatorCode);
   const url = `${env.mypvit.baseUrl}/v2/${env.mypvit.urlCodes.rest}/rest`;
 
   const res = await fetch(url, {
@@ -154,7 +200,7 @@ export async function initiatePayment(params: InitiatePaymentParams, retry = tru
       amount: params.amount,
       callback_url_code: env.mypvit.callbackUrlCode,
       customer_account_number: params.phone,
-      merchant_operation_account_code: env.mypvit.merchantOperationAccountCode,
+      merchant_operation_account_code: env.mypvit.accounts[params.operatorCode],
       transaction_type: "PAYMENT",
       owner_charge: "CUSTOMER",
       owner_charge_operator: "CUSTOMER",
@@ -168,7 +214,7 @@ export async function initiatePayment(params: InitiatePaymentParams, retry = tru
 
   // Clé expirée ou invalide : on la renouvelle une fois puis on retente.
   if (res.status === 401 && retry) {
-    await getSecret(true);
+    await getSecret(params.operatorCode, true);
     return initiatePayment(params, false);
   }
 
@@ -227,7 +273,7 @@ interface GiveChangeResponse {
  * client reçoive bien le montant plein annoncé.
  */
 export async function giveChange(params: GiveChangeParams, retry = true): Promise<GiveChangeResponse> {
-  const secret = await getSecret();
+  const secret = await getSecret(params.operatorCode);
   const url = `${env.mypvit.baseUrl}/v2/${env.mypvit.urlCodes.rest}/rest`;
 
   const res = await fetch(url, {
@@ -245,7 +291,7 @@ export async function giveChange(params: GiveChangeParams, retry = true): Promis
       reference: params.reference,
       service: "RESTFUL",
       customer_account_number: params.phone,
-      merchant_operation_account_code: env.mypvit.merchantOperationAccountCode,
+      merchant_operation_account_code: env.mypvit.accounts[params.operatorCode],
       transaction_type: "GIVE_CHANGE",
       owner_charge: "MERCHANT",
       owner_charge_operator: "CUSTOMER",
@@ -255,7 +301,7 @@ export async function giveChange(params: GiveChangeParams, retry = true): Promis
   });
 
   if (res.status === 401 && retry) {
-    await getSecret(true);
+    await getSecret(params.operatorCode, true);
     return giveChange(params, false);
   }
 
@@ -284,9 +330,13 @@ export async function giveChange(params: GiveChangeParams, retry = true): Promis
  * réussi. Le job appelant (stale-payment.job.ts) doit continuer à traiter
  * `null` comme "toujours incertain, ne rien créditer".
  */
-export async function checkTransactionStatus(reference: string): Promise<"SUCCESS" | "FAILED" | "PENDING" | null> {
+export async function checkTransactionStatus(
+  reference: string,
+  operatorCode: OperatorCode
+): Promise<"SUCCESS" | "FAILED" | "PENDING" | null> {
   try {
-    const secret = await getSecret();
+    const secret = await getSecret(operatorCode);
+    const accountCode = env.mypvit.accounts[operatorCode];
     const url = `${env.mypvit.baseUrl}/${env.mypvit.urlCodes.status}/status`;
 
     const res = await fetch(url, {
@@ -299,8 +349,8 @@ export async function checkTransactionStatus(reference: string): Promise<"SUCCES
         reference,
         merchant_reference_id: reference,
         merchantReferenceId: reference,
-        operation_account_code: env.mypvit.operationAccountCode,
-        operationAccountCode: env.mypvit.operationAccountCode,
+        operation_account_code: accountCode,
+        operationAccountCode: accountCode,
       }),
     });
 
@@ -324,9 +374,12 @@ export async function checkTransactionStatus(reference: string): Promise<"SUCCES
  * bloquerait un client légitime) — exposée pour test manuel côté admin en
  * attendant confirmation du format exact par le support MyPVit.
  */
-export async function checkKyc(phone: string): Promise<{ verified: boolean; raw: any } | null> {
+export async function checkKyc(
+  phone: string,
+  operatorCode: OperatorCode
+): Promise<{ verified: boolean; raw: any } | null> {
   try {
-    const secret = await getSecret();
+    const secret = await getSecret(operatorCode);
     const url = `${env.mypvit.baseUrl}/v2/${env.mypvit.urlCodes.kyc}/kyc`;
     const res = await fetch(url, {
       method: "POST",
@@ -334,7 +387,7 @@ export async function checkKyc(phone: string): Promise<{ verified: boolean; raw:
       body: JSON.stringify({
         customer_account_number: phone,
         customerAccountNumber: phone,
-        operation_account_code: env.mypvit.operationAccountCode,
+        operation_account_code: env.mypvit.accounts[operatorCode],
       }),
     });
     const data = await res.json().catch(() => null);
@@ -361,9 +414,9 @@ interface MypvitOperator {
  * (utile en particulier pour confirmer le bon code "carte Visa/Mastercard").
  * Retourne [] si l'appel échoue, plutôt que de faire planter l'appelant.
  */
-export async function getOperators(): Promise<MypvitOperator[]> {
+export async function getOperators(operatorCode: OperatorCode): Promise<MypvitOperator[]> {
   try {
-    const secret = await getSecret();
+    const secret = await getSecret(operatorCode);
     const url = `${env.mypvit.baseUrl}/v2/${env.mypvit.urlCodes.getOperators}/get-operators`;
     const res = await fetch(url, {
       method: "GET",

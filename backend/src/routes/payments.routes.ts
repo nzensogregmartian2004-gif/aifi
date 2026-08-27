@@ -47,8 +47,14 @@ router.post("/mypvit/secret", async (req, res) => {
       body?.secret_key ||
       body?.key;
 
+    // Si MyPVit précise à quel compte appartient ce secret (formats possibles
+    // observés sur des intégrations similaires), on l'utilise pour router
+    // vers le bon compte plutôt que de deviner — voir receiveSecretFromWebhook.
+    const accountCode =
+      body?.operation_account_code || body?.operationAccountCode || body?.merchant_operation_account_code || null;
+
     if (secret && typeof secret === "string") {
-      receiveSecretFromWebhook(secret, body?.expires_in || body?.expiresIn);
+      receiveSecretFromWebhook(secret, body?.expires_in || body?.expiresIn, accountCode);
     } else {
       console.warn("[mypvit secret webhook] payload reçu sans clé reconnaissable:", JSON.stringify(body));
     }

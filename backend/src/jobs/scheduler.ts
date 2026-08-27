@@ -3,7 +3,7 @@ import { applyLatePenalties } from "./late-penalty.job";
 import { sendRepaymentReminders } from "./repayment-reminder.job";
 import { flagStalePayments } from "./stale-payment.job";
 import { getSecret } from "../modules/payments/mypvit.client";
-import { isMypvitConfigured } from "../config/env";
+import { isMypvitConfigured, configuredOperators } from "../config/env";
 
 export function startScheduler() {
   // tous les jours à 6h du matin
@@ -13,14 +13,18 @@ export function startScheduler() {
     console.log("[scheduler]", penaltyResult, reminderResult);
   });
 
-  // La clé secrète MyPVit expire au bout d'1h : on la renouvelle toutes les 45 min.
+  // La clé secrète MyPVit expire au bout d'1h : on la renouvelle toutes les 45 min,
+  // séparément pour chaque compte configuré (Airtel / Moov / Carte) — un secret
+  // ne vaut que pour le compte qui l'a émis.
   if (isMypvitConfigured()) {
     cron.schedule("*/45 * * * *", async () => {
-      try {
-        await getSecret(true);
-        console.log("[scheduler] clé MyPVit renouvelée");
-      } catch (err) {
-        console.error("[scheduler] échec du renouvellement de la clé MyPVit", err);
+      for (const operator of configuredOperators()) {
+        try {
+          await getSecret(operator, true);
+          console.log(`[scheduler] clé MyPVit renouvelée (${operator})`);
+        } catch (err) {
+          console.error(`[scheduler] échec du renouvellement de la clé MyPVit (${operator})`, err);
+        }
       }
     });
 

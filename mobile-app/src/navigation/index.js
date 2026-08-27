@@ -53,7 +53,6 @@ const ADMIN_TAB_ICONS = {
 
 const CLIENT_TAB_ICONS = {
   Accueil: "home-outline",
-  Aides: "cash-outline",
   Portefeuille: "wallet-outline",
   Parrainage: "people-outline",
   Profil: "person-circle-outline",
@@ -181,13 +180,20 @@ function MainTabs() {
         headerShown: false,
         tabBarActiveTintColor: colors.gold,
         tabBarInactiveTintColor: colors.inkSoft,
-        tabBarStyle: { backgroundColor: colors.ink, borderTopWidth: 0, height: 64, paddingBottom: 10, paddingTop: 8 },
+        tabBarStyle: {
+          backgroundColor: "#fff", borderTopWidth: 1, borderTopColor: colors.line,
+          height: 64, paddingBottom: 10, paddingTop: 8,
+          shadowColor: colors.ink, shadowOpacity: 0.06, shadowRadius: 8, shadowOffset: { width: 0, height: -2 }, elevation: 8,
+        },
         tabBarLabelStyle: { fontSize: 11, fontWeight: "600" },
       }}
     >
       <Tab.Screen name="Accueil" component={DashboardScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Accueil) }} />
-      <Tab.Screen name="Aides" component={AidNavigator} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Aides) }} />
       <Tab.Screen name="Portefeuille" component={WalletScreen} options={{ tabBarIcon: makeTabBarIcon(CLIENT_TAB_ICONS.Portefeuille) }} />
+      {/* Bouton central, seul vrai "5ème" logique de la barre — la demande
+          d'aide se fait déjà depuis le tableau de bord, donc "Aides" n'a plus
+          besoin d'être un onglet séparé ici (elle reste accessible via les
+          boutons du dashboard, voir RootStack ci-dessous). */}
       <Tab.Screen
         name="Messages"
         component={MessagesScreen}
@@ -238,6 +244,7 @@ export default function RootNavigator() {
               <RootStack.Screen name="Main" component={MainTabs} />
               <RootStack.Screen name="Onboarding" component={OnboardingScreen} />
               <RootStack.Screen name="Notifications" component={NotificationsScreen} />
+              <RootStack.Screen name="Aides" component={AidNavigator} />
             </>
           )
         ) : (

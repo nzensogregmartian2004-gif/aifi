@@ -10,12 +10,23 @@ export function SectionLabel({ children }) {
   return <Text style={styles.sectionLabel}>{children}</Text>;
 }
 
-export function ScreenTitle({ children, subtitle, style }) {
+export function ScreenTitle({ children, subtitle, right }) {
   return (
-    <View style={[{ marginBottom: 18 }, style]}>
-      <Text style={styles.title}>{children}</Text>
-      {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+    <View style={{ marginBottom: 18, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
+      <View style={{ flex: 1, marginRight: right ? 12 : 0 }}>
+        <Text style={styles.title}>{children}</Text>
+        {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
+      </View>
+      {right ? <View style={{ marginTop: 2 }}>{right}</View> : null}
     </View>
+  );
+}
+
+export function HelpButton({ onPress }) {
+  return (
+    <TouchableOpacity onPress={onPress} style={styles.helpButton} hitSlop={10}>
+      <Text style={styles.helpButtonText}>?</Text>
+    </TouchableOpacity>
   );
 }
 
@@ -107,4 +118,9 @@ const styles = StyleSheet.create({
   },
   statLabel: { fontSize: 10.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", letterSpacing: 0.4 },
   statValue: { fontFamily: fonts.mono, fontSize: 21, fontWeight: "700", color: colors.ink, marginTop: 6 },
+  helpButton: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: colors.card,
+    borderWidth: 1, borderColor: colors.line, alignItems: "center", justifyContent: "center",
+  },
+  helpButtonText: { fontSize: 16, fontWeight: "800", color: colors.inkSoft },
 });

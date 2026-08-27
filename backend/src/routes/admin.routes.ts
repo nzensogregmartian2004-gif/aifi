@@ -15,7 +15,13 @@ import { sendAdminMessage, getThread, markThreadRead, listConversationsForAdmin 
 import settingsRouter from "./admin.settings.routes";
 import { prisma } from "../db/client";
 import { getOperators, checkKyc } from "../modules/payments/mypvit.client";
-import { isMypvitConfigured } from "../config/env";
+import { isMypvitConfigured, OperatorCode } from "../config/env";
+
+const VALID_OPERATORS: OperatorCode[] = ["AIRTEL_MONEY", "MOOV_MONEY", "VISA_MASTERCARD"];
+function parseOperatorParam(value: unknown): OperatorCode {
+  if (typeof value === "string" && (VALID_OPERATORS as string[]).includes(value)) return value as OperatorCode;
+  return "AIRTEL_MONEY";
+}
 import { validateBody } from "../middleware/validate";
 import {
   adminCreateUserSchema,
@@ -379,17 +385,21 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
 // Outils de diagnostic MyPVit — utiles pour confirmer le bon fonctionnement
 // des endpoints dont le format n'est pas publiquement documenté (voir notes
 // dans mypvit.client.ts) avant de s'appuyer dessus en production.
-router.get("/payments/mypvit/operators", async (_req, res) => {
-  const operators = await getOperators();
-  res.json({ operators, note: "Liste vide = appel indisponible ou format de réponse inattendu." });
+// ?operator=AIRTEL_MONEY|MOOV_MONEY|VISA_MASTERCARD (défaut AIRTEL_MONEY) — précise
+// quel compte marchand utiliser, puisque chacun a son propre operationAccountCode.
+router.get("/payments/mypvit/operators", async (req, res) => {
+  const operator = parseOperatorParam(req.query.operator);
+  const operators = await getOperators(operator);
+  res.json({ operator, operators, note: "Liste vide = appel indisponible ou format de réponse inattendu." });
 });
 
 router.get("/payments/mypvit/kyc-test", async (req, res) => {
   try {
     const { phone } = req.query as { phone?: string };
     if (!phone) throw new Error("Paramètre phone requis");
-    const result = await checkKyc(phone);
-    res.json({ result, note: "null = format de réponse non reconnu, à vérifier avec le support MyPVit." });
+    const operator = parseOperatorParam(req.query.operator);
+    const result = await checkKyc(phone, operator);
+    res.json({ operator, result, note: "null = format de réponse non reconnu, à vérifier avec le support MyPVit." });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

@@ -2,6 +2,7 @@ import { prisma } from "../../db/client";
 import { initiatePayment, generatePaymentReference, checkTransactionStatus } from "./mypvit.client";
 import { recordRepayment, getRemainingAmount } from "../repayments/repayment.service";
 import { notifyUser } from "../notifications/notification.service";
+import { OperatorCode } from "../../config/env";
 
 export async function startRepaymentPayment(
   userId: string,
@@ -90,7 +91,7 @@ export async function attemptStatusRecovery(transactionId: string): Promise<"res
   const transaction = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
   if (!transaction || transaction.status !== "PENDING") return "still_pending";
 
-  const status = await checkTransactionStatus(transaction.reference);
+  const status = await checkTransactionStatus(transaction.reference, transaction.operator as OperatorCode);
   if (status === null) return "unavailable";
   if (status === "PENDING") return "still_pending";
 
