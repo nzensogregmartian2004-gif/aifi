@@ -147,7 +147,18 @@ export async function disburseAidRequest(id: string, adminId: string, note?: str
     throw new Error(`Impossible d'envoyer les fonds : statut actuel "${existing.status}" (doit être ACCEPTED)`);
   }
 
-  const request = await prisma.aidRequest.update({ where: { id }, data: { status: "DISBURSED" } });
+  // Même verrou atomique que la voie MyPVit (§ci-dessous) : évite deux
+  // marquages "envoyé" en double (deux notifications, deux logs d'audit) sur
+  // un double-clic ou deux admins simultanés.
+  const locked = await prisma.aidRequest.updateMany({
+    where: { id, status: "ACCEPTED" },
+    data: { status: "DISBURSED" },
+  });
+  if (locked.count === 0) {
+    throw new Error("Cette demande a déjà été traitée par quelqu'un d'autre.");
+  }
+
+  const request = await prisma.aidRequest.findUniqueOrThrow({ where: { id } });
 
   await logAction({
     adminId,
@@ -186,6 +197,18 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
     throw new Error("Cette demande n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
   }
 
+  // Verrou atomique : ne fait passer ACCEPTED -> DISBURSING que pour UN seul
+  // appelant. Si deux admins (ou un double-clic / une requête réseau rejouée)
+  // déclenchent l'envoi en même temps, un seul obtient le verrou ; l'autre est
+  // rejeté avant même d'appeler MyPVit — ça évite un envoi d'argent en double.
+  const locked = await prisma.aidRequest.updateMany({
+    where: { id, status: "ACCEPTED" },
+    data: { status: "DISBURSING" },
+  });
+  if (locked.count === 0) {
+    throw new Error("Ce décaissement est déjà en cours ou a déjà été traité par quelqu'un d'autre.");
+  }
+
   const reference = generateDisbursementReference();
 
   const transaction = await prisma.paymentTransaction.create({
@@ -213,6 +236,10 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
       where: { id: transaction.id },
       data: { status: "FAILED", rawInitResponse: { error: err.message } },
     });
+    // On relâche le verrou (retour à ACCEPTED) pour que l'admin puisse
+    // réessayer — sinon la demande resterait bloquée en DISBURSING pour
+    // toujours après un simple échec réseau.
+    await prisma.aidRequest.update({ where: { id }, data: { status: "ACCEPTED" } });
     throw new Error(`Le décaissement automatique a échoué : ${err.message}`);
   }
 
@@ -223,6 +250,9 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
   });
 
   if (!success) {
+    // Idem : refus net de l'opérateur, on relâche le verrou pour permettre
+    // une nouvelle tentative (ou un passage en envoi manuel).
+    await prisma.aidRequest.update({ where: { id }, data: { status: "ACCEPTED" } });
     throw new Error(result.message || "Le décaissement a été refusé par l'opérateur.");
   }
 
@@ -246,3 +276,4 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
 
   return request;
 }
+

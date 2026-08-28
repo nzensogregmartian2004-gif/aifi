@@ -5,16 +5,16 @@ import { Platform } from "react-native";
 // gardées pour que tout l'écosystème de composants existant se repeigne
 // automatiquement, sans devoir toucher chaque écran un par un.
 export const colors = {
-  ink: "#0F1B33",        // texte principal, fonds sombres (login, bannières)
-  ink2: "#1E3A6E",        // dégradé / profondeur sur les fonds sombres
-  inkSoft: "#64748B",     // texte secondaire, gris-bleu doux
-  paper: "#F4F8FE",       // fond général de l'app, légèrement teinté bleu
-  paper2: "#E8F0FD",      // fond secondaire (cartes creuses, zones actives)
+  ink: "#0F1B33", // texte principal, fonds sombres (login, bannières)
+  ink2: "#1E3A6E", // dégradé / profondeur sur les fonds sombres
+  inkSoft: "#64748B", // texte secondaire, gris-bleu doux
+  paper: "#F4F8FE", // fond général de l'app, légèrement teinté bleu
+  paper2: "#E8F0FD", // fond secondaire (cartes creuses, zones actives)
   card: "#FFFFFF",
   line: "#DCE6F5",
-  gold: "#2F7DFB",        // ex-accent doré -> bleu vif, couleur d'action principale
-  goldSoft: "#E4EEFF",    // fond doux assorti à l'accent
-  accent2: "#5FC4E8",     // bleu ciel clair, pour dégradés / touches secondaires
+  gold: "#2F7DFB", // ex-accent doré -> bleu vif, couleur d'action principale
+  goldSoft: "#E4EEFF", // fond doux assorti à l'accent
+  accent2: "#5FC4E8", // bleu ciel clair, pour dégradés / touches secondaires
   success: "#1E9E6B",
   successSoft: "#E1F7EE",
   danger: "#E14B4B",
@@ -25,9 +25,21 @@ export const colors = {
 };
 
 export const fonts = {
-  display: Platform.select({ ios: "Avenir-Heavy", android: "sans-serif-medium", default: "System" }),
-  body: Platform.select({ ios: "System", android: "sans-serif", default: "System" }),
-  mono: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }),
+  display: Platform.select({
+    ios: "Avenir-Heavy",
+    android: "sans-serif-medium",
+    default: "System",
+  }),
+  body: Platform.select({
+    ios: "System",
+    android: "sans-serif",
+    default: "System",
+  }),
+  mono: Platform.select({
+    ios: "Menlo",
+    android: "monospace",
+    default: "monospace",
+  }),
 };
 
 export const radius = { sm: 10, md: 16, lg: 22, pill: 100 };
@@ -42,9 +54,11 @@ export const STATUS_LABELS = {
   SUSPENDED: "Suspendu",
   ACCEPTED: "Acceptée",
   REJECTED: "Refusée",
+  DISBURSING: "Envoi en cours…",
   DISBURSED: "Envoyée",
   REPAID: "Remboursée",
   LATE: "En retard",
+  APPROVING: "Envoi en cours…",
   APPROVED: "Approuvé",
   CONFIRMED: "Confirmé",
 };
@@ -62,6 +76,8 @@ export function statusColor(status) {
     case "REJECTED":
     case "LATE":
       return { bg: colors.dangerSoft, fg: colors.danger };
+    case "DISBURSING":
+    case "APPROVING":
     case "PENDING":
     default:
       return { bg: colors.warnSoft, fg: colors.warn };

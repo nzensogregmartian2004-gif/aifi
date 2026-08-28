@@ -158,17 +158,36 @@ export async function confirmRepaymentDeclaration(declarationId: string, adminId
     throw new Error("Cette déclaration a déjà été traitée");
   }
 
-  const result = await recordRepayment(
-    declaration.aidRequestId,
-    declaration.amount,
-    undefined,
-    proofImageUrl || declaration.proofImageUrl || undefined
-  );
-
-  await prisma.repaymentDeclaration.update({
-    where: { id: declarationId },
+  // Verrou atomique : seule UNE confirmation concurrente de cette déclaration
+  // peut passer (WHERE id + status="PENDING"). Sans ça, deux admins qui
+  // confirment la même déclaration en même temps pouvaient enregistrer deux
+  // remboursements pour un seul paiement réel.
+  const locked = await prisma.repaymentDeclaration.updateMany({
+    where: { id: declarationId, status: "PENDING" },
     data: { status: "CONFIRMED", resolvedAt: new Date() },
   });
+  if (locked.count === 0) {
+    throw new Error("Cette déclaration vient d'être traitée par quelqu'un d'autre.");
+  }
+
+  let result;
+  try {
+    result = await recordRepayment(
+      declaration.aidRequestId,
+      declaration.amount,
+      undefined,
+      proofImageUrl || declaration.proofImageUrl || undefined
+    );
+  } catch (err) {
+    // recordRepayment a son propre contrôle (le montant ne peut pas dépasser
+    // le reste dû) : s'il échoue, on relâche le verrou pour ne pas laisser la
+    // déclaration bloquée en CONFIRMED sans remboursement réellement enregistré.
+    await prisma.repaymentDeclaration.update({
+      where: { id: declarationId },
+      data: { status: "PENDING", resolvedAt: null },
+    });
+    throw err;
+  }
 
   await logAction({
     adminId,
@@ -190,10 +209,13 @@ export async function rejectRepaymentDeclaration(declarationId: string, adminId:
     throw new Error("Cette déclaration a déjà été traitée");
   }
 
-  await prisma.repaymentDeclaration.update({
-    where: { id: declarationId },
+  const locked = await prisma.repaymentDeclaration.updateMany({
+    where: { id: declarationId, status: "PENDING" },
     data: { status: "REJECTED", resolvedAt: new Date() },
   });
+  if (locked.count === 0) {
+    throw new Error("Cette déclaration vient d'être traitée par quelqu'un d'autre.");
+  }
 
   await logAction({
     adminId,

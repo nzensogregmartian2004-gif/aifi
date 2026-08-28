@@ -17,6 +17,7 @@ enum AidRequestStatus {
   PENDING
   ACCEPTED
   REJECTED
+  DISBURSING // décaissement MyPVit en cours : verrou anti double-envoi, voir aid-request.service.ts
   DISBURSED
   REPAID
   LATE
@@ -29,6 +30,7 @@ enum Role {
 
 enum WithdrawalStatus {
   PENDING
+  APPROVING // envoi MyPVit en cours : verrou anti double-envoi, voir withdrawal.service.ts
   APPROVED
   REJECTED
 }
@@ -118,7 +120,6 @@ model AidRequest {
   receivingPhone       String?
   receivingName        String?
   reminderSentAt       DateTime?
-  dueTodayReminderSentAt DateTime?
   latePenaltyAppliedAt DateTime?
   createdAt            DateTime          @default(now())
 

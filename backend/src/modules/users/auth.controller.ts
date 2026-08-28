@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { prisma } from "../../db/client";
 import { signToken } from "../../middleware/auth";
+import { sendAdminMessage } from "../messages/message.service";
 
 function generateReferralCode(): string {
   return crypto.randomBytes(4).toString("hex").toUpperCase(); // ex: "A1B2C3D4"
@@ -82,9 +83,12 @@ async function sendWelcomeMessage(clientId: string) {
     "3️⃣ Ton lieu de résidence (quartier + ville)\n\n" +
     "Dès que c'est reçu et vérifié, ton compte sera activé et tu recevras une notification.";
 
-  await prisma.message.create({
-    data: { clientId, senderId: admin.id, senderRole: "ADMIN", text },
-  });
+  // Passe par sendAdminMessage (au lieu d'un prisma.message.create direct) pour
+  // que la notification en-app + push soit bien créée : sans ça, le message
+  // arrive dans le fil de discussion mais l'icône ne signale jamais rien de
+  // nouveau, puisque le badge se base sur /notifications/unread-count et non
+  // sur les messages eux-mêmes.
+  await sendAdminMessage(clientId, admin.id, text);
 }
 
 

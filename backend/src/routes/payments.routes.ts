@@ -1,14 +1,14 @@
 import { Router } from "express";
 import { handleMypvitCallback } from "../modules/payments/payment.service";
 import { receiveSecretFromWebhook } from "../modules/payments/mypvit.client";
+import { verifyMypvitWebhookIp } from "../middleware/verifyWebhookIp";
 
 const router = Router();
 
 // Route publique (pas de requireAuth) : c'est MyPVit qui appelle ce endpoint,
-// pas notre app. Voir docs.mypvit.pro — le seul mécanisme de confiance documenté
-// est de restreindre l'accès par adresse IP côté infra (ex: règle nginx/firewall
-// n'autorisant que les IPs MyPVit). Pense à la configurer avant la mise en prod.
-router.post("/mypvit/callback", async (req, res) => {
+// pas notre app. Protégée par filtrage IP (voir verifyMypvitWebhookIp) —
+// remplis MYPVIT_WEBHOOK_ALLOWED_IPS avant la mise en prod.
+router.post("/mypvit/callback", verifyMypvitWebhookIp, async (req, res) => {
   try {
     const payload = req.body;
     await handleMypvitCallback(payload);
@@ -37,7 +37,7 @@ router.post("/mypvit/callback", async (req, res) => {
  * comptes MyPVit (constaté sur des intégrations similaires) : on essaie
  * plusieurs noms de champ, et le corps brut en dernier recours.
  */
-router.post("/mypvit/secret", async (req, res) => {
+router.post("/mypvit/secret", verifyMypvitWebhookIp, async (req, res) => {
   try {
     const body = req.body;
     const secret =
@@ -47,14 +47,8 @@ router.post("/mypvit/secret", async (req, res) => {
       body?.secret_key ||
       body?.key;
 
-    // Si MyPVit précise à quel compte appartient ce secret (formats possibles
-    // observés sur des intégrations similaires), on l'utilise pour router
-    // vers le bon compte plutôt que de deviner — voir receiveSecretFromWebhook.
-    const accountCode =
-      body?.operation_account_code || body?.operationAccountCode || body?.merchant_operation_account_code || null;
-
     if (secret && typeof secret === "string") {
-      receiveSecretFromWebhook(secret, body?.expires_in || body?.expiresIn, accountCode);
+      receiveSecretFromWebhook(secret, body?.expires_in || body?.expiresIn);
     } else {
       console.warn("[mypvit secret webhook] payload reçu sans clé reconnaissable:", JSON.stringify(body));
     }

@@ -1,6 +1,5 @@
 import express from "express";
 import cors from "cors";
-import path from "path";
 import rateLimit from "express-rate-limit";
 import clientRoutes from "./routes/client.routes";
 import adminRoutes from "./routes/admin.routes";
@@ -8,6 +7,7 @@ import authRoutes from "./routes/auth.routes";
 import notificationsRoutes from "./routes/notifications.routes";
 import accountRoutes from "./routes/account.routes";
 import uploadsRoutes from "./routes/uploads.routes";
+import uploadsServeRoutes from "./routes/uploads.serve.routes";
 import paymentsRoutes from "./routes/payments.routes";
 
 export const app = express();
@@ -19,7 +19,10 @@ app.set("trust proxy", 1);
 
 app.use(cors());
 app.use(express.json());
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+// Documents sensibles (pièces d'identité, selfies, justificatifs) : servis
+// derrière une authentification + vérification de propriété, plus jamais en
+// statique ouvert à tout le monde (voir uploads.serve.routes.ts).
+app.use("/uploads", uploadsServeRoutes);
 
 // Filet de sécurité général : évite qu'un script tape l'API en boucle sur
 // n'importe quelle route. Les routes sensibles (login, register) ont en plus

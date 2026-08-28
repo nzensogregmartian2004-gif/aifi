@@ -42,39 +42,63 @@ export async function requestWithdrawal(
  * Approuve un retrait. Re-vérifie le statut ET le solde AU MOMENT de l'approbation
  * (pas seulement au moment de la demande) dans une transaction, pour éviter qu'un
  * portefeuille devienne négatif si deux retraits sont approuvés coup sur coup.
+ *
+ * Verrou : le passage PENDING -> APPROVED se fait via un updateMany dont le
+ * WHERE porte à la fois sur l'id ET sur status="PENDING" — Postgres ne laisse
+ * qu'UNE seule requête concurrente matcher la ligne. Combiné à l'isolation
+ * "Serializable" (qui protège aussi le cas de deux retraits DIFFÉRENTS du
+ * même utilisateur approuvés en même temps), ça élimine le risque de
+ * portefeuille négatif par double approbation. En cas de conflit de
+ * sérialisation, Postgres fait échouer l'une des deux transactions
+ * (code P2034 côté Prisma) — l'admin voit une erreur et peut simplement
+ * relancer l'approbation, rien n'a été débité en double entre-temps.
  */
 export async function approveWithdrawal(withdrawalId: string, adminId: string, proofImageUrl: string) {
   if (!proofImageUrl) {
     throw new Error("Un justificatif (image) est requis pour approuver un retrait");
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const withdrawal = await tx.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+  let result;
+  try {
+    result = await prisma.$transaction(
+      async (tx) => {
+        const withdrawal = await tx.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
 
-    if (withdrawal.status !== "PENDING") {
-      throw new Error(`Ce retrait a déjà été traité (statut actuel : ${withdrawal.status})`);
+        if (withdrawal.status !== "PENDING") {
+          throw new Error(`Ce retrait a déjà été traité (statut actuel : ${withdrawal.status})`);
+        }
+
+        const entries = await tx.walletEntry.findMany({ where: { userId: withdrawal.userId } });
+        const balance = entries.reduce((sum, e) => sum + e.amount, 0);
+
+        if (withdrawal.amount > balance) {
+          throw new Error(
+            `Solde insuffisant pour approuver ce retrait (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA). Le solde a dû changer depuis la demande.`
+          );
+        }
+
+        const locked = await tx.withdrawal.updateMany({
+          where: { id: withdrawalId, status: "PENDING" },
+          data: { status: "APPROVED", proofImageUrl },
+        });
+        if (locked.count === 0) {
+          throw new Error("Ce retrait vient d'être traité par quelqu'un d'autre.");
+        }
+
+        await tx.walletEntry.create({
+          data: { userId: withdrawal.userId, amount: -withdrawal.amount, reason: "withdrawal_approved" },
+        });
+
+        return tx.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+      },
+      { isolationLevel: "Serializable" }
+    );
+  } catch (err: any) {
+    if (err?.code === "P2034") {
+      throw new Error("Conflit avec une autre opération en cours sur ce compte — réessaie dans un instant.");
     }
-
-    const entries = await tx.walletEntry.findMany({ where: { userId: withdrawal.userId } });
-    const balance = entries.reduce((sum, e) => sum + e.amount, 0);
-
-    if (withdrawal.amount > balance) {
-      throw new Error(
-        `Solde insuffisant pour approuver ce retrait (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA). Le solde a dû changer depuis la demande.`
-      );
-    }
-
-    const updated = await tx.withdrawal.update({
-      where: { id: withdrawalId },
-      data: { status: "APPROVED", proofImageUrl },
-    });
-
-    await tx.walletEntry.create({
-      data: { userId: withdrawal.userId, amount: -withdrawal.amount, reason: "withdrawal_approved" },
-    });
-
-    return updated;
-  });
+    throw err;
+  }
 
   await logAction({
     adminId,
@@ -96,9 +120,22 @@ export async function approveWithdrawal(withdrawalId: string, adminId: string, p
 
 /**
  * Approuve et envoie un retrait automatiquement via MyPVit (GIVE_CHANGE,
- * synchrone). Même logique de re-vérification du solde qu'en approbation
- * manuelle. En cas d'échec, le retrait reste PENDING — l'admin peut réessayer
- * ou basculer sur l'envoi manuel (approveWithdrawal ci-dessus).
+ * synchrone). En cas d'échec, le retrait reste PENDING — l'admin peut
+ * réessayer ou basculer sur l'envoi manuel (approveWithdrawal ci-dessus).
+ *
+ * Verrous (deux problèmes distincts, deux protections) :
+ *  1. Double traitement DU MÊME retrait (double-clic, deux admins) : verrouillé
+ *     par un updateMany atomique PENDING -> APPROVING, comme pour le
+ *     décaissement (voir aid-request.service.ts).
+ *  2. Deux retraits DIFFÉRENTS du même utilisateur envoyés en vrai parallèle,
+ *     qui dépasseraient ensemble le solde disponible : on débite le
+ *     portefeuille tout de suite en même temps qu'on pose le verrou APPROVING
+ *     (avant même d'appeler MyPVit), en isolation "Serializable". Comme ça,
+ *     le solde reflète immédiatement l'argent "engagé", et la deuxième
+ *     tentative concurrente voit un solde insuffisant au lieu de passer en
+ *     même temps que la première. Si l'appel MyPVit échoue ensuite, on
+ *     rembourse (écriture de portefeuille compensatoire) et on repasse le
+ *     retrait en PENDING pour permettre une nouvelle tentative.
  */
 export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: string) {
   const withdrawal = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId }, include: { user: true } });
@@ -109,9 +146,34 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
     throw new Error("Ce retrait n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
   }
 
-  const balance = await getWalletBalance(withdrawal.userId);
-  if (withdrawal.amount > balance) {
-    throw new Error(`Solde insuffisant (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA).`);
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        const entries = await tx.walletEntry.findMany({ where: { userId: withdrawal.userId } });
+        const balance = entries.reduce((sum, e) => sum + e.amount, 0);
+        if (withdrawal.amount > balance) {
+          throw new Error(`Solde insuffisant (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA).`);
+        }
+
+        const locked = await tx.withdrawal.updateMany({
+          where: { id: withdrawalId, status: "PENDING" },
+          data: { status: "APPROVING" },
+        });
+        if (locked.count === 0) {
+          throw new Error("Ce retrait est déjà en cours ou a déjà été traité par quelqu'un d'autre.");
+        }
+
+        await tx.walletEntry.create({
+          data: { userId: withdrawal.userId, amount: -withdrawal.amount, reason: "withdrawal_approved" },
+        });
+      },
+      { isolationLevel: "Serializable" }
+    );
+  } catch (err: any) {
+    if (err?.code === "P2034") {
+      throw new Error("Conflit avec une autre opération en cours sur ce compte — réessaie dans un instant.");
+    }
+    throw err;
   }
 
   const operatorCode = withdrawal.receivingOperator as "AIRTEL_MONEY" | "MOOV_MONEY";
@@ -125,6 +187,17 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
       status: "PENDING",
     },
   });
+
+  // Repasse le retrait en PENDING et rembourse le débit déjà posé ci-dessus,
+  // pour qu'un échec MyPVit ne laisse jamais le solde amputé pour rien.
+  async function releaseReservation(reason: string) {
+    await prisma.$transaction([
+      prisma.withdrawal.update({ where: { id: withdrawalId }, data: { status: "PENDING" } }),
+      prisma.walletEntry.create({
+        data: { userId: withdrawal.userId, amount: withdrawal.amount, reason },
+      }),
+    ]);
+  }
 
   let result;
   try {
@@ -140,6 +213,7 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
       where: { id: transaction.id },
       data: { status: "FAILED", rawInitResponse: { error: err.message } },
     });
+    await releaseReservation("withdrawal_retry_after_error");
     throw new Error(`Le retrait automatique a échoué : ${err.message}`);
   }
 
@@ -150,18 +224,13 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
   });
 
   if (!success) {
+    await releaseReservation("withdrawal_retry_after_rejection");
     throw new Error(result.message || "Le retrait a été refusé par l'opérateur.");
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const fresh = await tx.withdrawal.update({
-      where: { id: withdrawalId },
-      data: { status: "APPROVED" },
-    });
-    await tx.walletEntry.create({
-      data: { userId: withdrawal.userId, amount: -withdrawal.amount, reason: "withdrawal_approved" },
-    });
-    return fresh;
+  const updated = await prisma.withdrawal.update({
+    where: { id: withdrawalId },
+    data: { status: "APPROVED" },
   });
 
   await logAction({
@@ -188,10 +257,15 @@ export async function rejectWithdrawal(withdrawalId: string, adminId: string) {
     throw new Error(`Ce retrait a déjà été traité (statut actuel : ${existing.status})`);
   }
 
-  const withdrawal = await prisma.withdrawal.update({
-    where: { id: withdrawalId },
+  const locked = await prisma.withdrawal.updateMany({
+    where: { id: withdrawalId, status: "PENDING" },
     data: { status: "REJECTED" },
   });
+  if (locked.count === 0) {
+    throw new Error("Ce retrait a déjà été traité par quelqu'un d'autre.");
+  }
+
+  const withdrawal = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
 
   await logAction({
     adminId,
