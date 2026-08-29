@@ -20,8 +20,6 @@ const DEFAULT_TIERS = [
   { minPoints: 240, ceiling: 60000 },
 ];
 
-const DEFAULT_DURATIONS = [7, 15, 30];
-
 async function main() {
   await prisma.appSettings.upsert({
     where: { id: "singleton" },
@@ -37,13 +35,9 @@ async function main() {
     });
   }
 
-  for (const days of DEFAULT_DURATIONS) {
-    await prisma.allowedDuration.upsert({
-      where: { days },
-      update: {},
-      create: { days },
-    });
-  }
+  // La grille de durées de remboursement (DurationTier) est déjà initialisée
+  // par sa migration (20260822093000_duration_tiers_grid) — plus besoin de la
+  // seeder ici. L'ancien modèle AllowedDuration n'existe plus dans le schéma.
 
   const existingAdmin = await prisma.user.findFirst({ where: { role: "ADMIN" } });
   if (!existingAdmin) {
@@ -64,7 +58,7 @@ async function main() {
     console.log("Un compte administrateur existe déjà, aucun nouveau compte créé.");
   }
 
-  console.log("Seed terminé : AppSettings, CeilingTier, AllowedDuration initialisés.");
+  console.log("Seed terminé : AppSettings, CeilingTier initialisés.");
 }
 
 main()
