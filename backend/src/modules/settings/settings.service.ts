@@ -11,7 +11,6 @@ interface SettingsUpdate {
   minWithdrawal?: number;
   minRepaymentAmount?: number;
   latePenaltyPoints?: number;
-  reminderDaysBefore?: number;
 }
 
 export async function updateSettings(data: SettingsUpdate) {

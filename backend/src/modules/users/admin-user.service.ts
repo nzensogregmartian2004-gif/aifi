@@ -10,10 +10,10 @@ interface UserUpdate {
   ceiling?: number;
 }
 
-export async function suspendUser(id: string, adminId: string) {
+export async function suspendUser(id: string, adminId: string, reason?: string) {
   const user = await prisma.user.update({ where: { id }, data: { status: "SUSPENDED" } });
-  await logAction({ adminId, action: "user_suspend", entityType: "User", entityId: id });
-  await notifyUser(user.id, "account_suspended", "Votre compte a été suspendu par l'administrateur.");
+  await logAction({ adminId, action: "user_suspend", entityType: "User", entityId: id, note: reason });
+  await notifyUser(user.id, "account_suspended", reason ?? "Votre compte a été suspendu par l'administrateur.");
   return user;
 }
 

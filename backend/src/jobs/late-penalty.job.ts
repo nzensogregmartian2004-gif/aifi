@@ -27,7 +27,7 @@ export async function applyLatePenalties() {
           userId: request.userId,
           aidRequestId: request.id,
           type: "late_penalty",
-          message: `Pénalité de ${settings.latePenaltyPoints} points pour retard de remboursement.`,
+          message: `Pénalité de ${settings.latePenaltyPoints} points pour retard de remboursement. Si le paiement n'est pas régularisé sous 3 jours, ton compte sera automatiquement bloqué.`,
         },
       });
     });

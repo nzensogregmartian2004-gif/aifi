@@ -1,76 +1,72 @@
 import { prisma } from "../db/client";
 
+const SHORT_LOAN_DURATION_DAYS = 3;
+const LONG_LOAN_REMINDER_WINDOW_DAYS = 3; // fenêtre des rappels quotidiens : J-2, J-1, J0 (jour de l'échéance)
+
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function daysBetween(a: Date, b: Date) {
+  return Math.round((startOfDay(b).getTime() - startOfDay(a).getTime()) / (24 * 60 * 60 * 1000));
+}
+
 /**
- * Deux rappels au total par demande, jamais plus (pour ne pas harceler le
- * client) :
- *  1. `reminderSentAt` — X jours avant l'échéance (X = settings.reminderDaysBefore).
- *  2. `dueTodayReminderSentAt` — le jour même de l'échéance, une seule fois.
- * Au-delà, si le remboursement n'est toujours pas fait, c'est la pénalité de
- * retard (late-penalty.job.ts) qui prend le relais le lendemain — pas de rappel
- * quotidien répété entre-temps.
+ * Cadence de rappel liée à la durée du prêt :
+ *  - Prêts sur 3 jours (durationDays === 3) : UN SEUL rappel, à J-1.
+ *  - Tous les autres prêts : un rappel CHAQUE JOUR pendant les 3 derniers
+ *    jours avant l'échéance (J-2, J-1, J0 = jour de l'échéance inclus).
+ *
+ * `reminderSentAt` sert maintenant de "date du dernier rappel envoyé" (et non
+ * plus juste un flag une-fois) — ça permet les rappels quotidiens répétés sur
+ * les prêts longs, tout en empêchant un double envoi le même jour si le job
+ * tournait deux fois dans la journée.
+ *
+ * `settings.reminderDaysBefore` n'est plus utilisé par ce job : la cadence
+ * est désormais fixe et basée sur la durée du prêt plutôt que sur ce réglage
+ * admin. Le champ reste dans les réglages (rien ne casse si on le modifie
+ * encore), mais il n'a plus d'effet sur les rappels.
  */
 export async function sendRepaymentReminders() {
-  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
   const now = new Date();
-  const threshold = new Date(now.getTime() + settings.reminderDaysBefore * 24 * 60 * 60 * 1000);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const startOfTomorrow = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+  const lookaheadLimit = new Date(now.getTime() + LONG_LOAN_REMINDER_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
-  const upcoming = await prisma.aidRequest.findMany({
+  const candidates = await prisma.aidRequest.findMany({
     where: {
       status: { in: ["ACCEPTED", "DISBURSED"] },
-      dueDate: { lte: threshold, gt: now },
-      reminderSentAt: null, // un seul rappel anticipé par demande
+      dueDate: { not: null, lte: lookaheadLimit }, // aucun prêt n'a besoin de rappel plus de 3 jours à l'avance
     },
+    select: { id: true, userId: true, amount: true, dueDate: true, durationDays: true, reminderSentAt: true },
   });
 
-  for (const request of upcoming) {
-    await prisma.$transaction(async (tx) => {
-      await tx.aidRequest.update({
-        where: { id: request.id },
-        data: { reminderSentAt: now },
-      });
+  let reminded = 0;
 
+  for (const request of candidates) {
+    const daysLeft = daysBetween(now, request.dueDate!); // > 0 avant échéance, 0 le jour même
+    const isShortLoan = request.durationDays === SHORT_LOAN_DURATION_DAYS;
+    const alreadyRemindedToday = request.reminderSentAt !== null && daysBetween(request.reminderSentAt, now) < 1;
+
+    const shouldRemindToday = isShortLoan
+      ? daysLeft === 1 && request.reminderSentAt === null // un seul rappel, à J-1
+      : daysLeft >= 0 && daysLeft < LONG_LOAN_REMINDER_WINDOW_DAYS && !alreadyRemindedToday;
+
+    if (!shouldRemindToday) continue;
+
+    const message =
+      daysLeft === 0
+        ? `Ton remboursement de ${request.amount} FCFA arrive à échéance aujourd'hui.`
+        : `Ton remboursement de ${request.amount} FCFA arrive à échéance dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}.`;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.aidRequest.update({ where: { id: request.id }, data: { reminderSentAt: now } });
       await tx.notification.create({
-        data: {
-          userId: request.userId,
-          aidRequestId: request.id,
-          type: "reminder",
-          message: `Votre remboursement de ${request.amount} FCFA arrive à échéance bientôt.`,
-        },
+        data: { userId: request.userId, aidRequestId: request.id, type: "reminder", message },
       });
     });
+
+    reminded++;
     // placeholder : brancher ici un envoi SMS/email réel plus tard
   }
 
-  // Rappel du jour J : couvre le cas où l'échéance tombe le jour même, que le
-  // rappel anticipé ait déjà été envoyé ou non (ex : demande créée trop tard
-  // pour que le rappel à X jours ait eu l'occasion de partir).
-  const dueToday = await prisma.aidRequest.findMany({
-    where: {
-      status: { in: ["ACCEPTED", "DISBURSED"] },
-      dueDate: { gte: startOfToday, lt: startOfTomorrow },
-      dueTodayReminderSentAt: null,
-    },
-  });
-
-  for (const request of dueToday) {
-    await prisma.$transaction(async (tx) => {
-      await tx.aidRequest.update({
-        where: { id: request.id },
-        data: { dueTodayReminderSentAt: now },
-      });
-
-      await tx.notification.create({
-        data: {
-          userId: request.userId,
-          aidRequestId: request.id,
-          type: "reminder",
-          message: `Ton remboursement de ${request.amount} FCFA arrive à échéance aujourd'hui.`,
-        },
-      });
-    });
-  }
-
-  return { reminded: upcoming.length, remindedDueToday: dueToday.length };
+  return { reminded };
 }

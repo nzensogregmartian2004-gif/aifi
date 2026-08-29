@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { applyLatePenalties } from "./late-penalty.job";
 import { sendRepaymentReminders } from "./repayment-reminder.job";
 import { flagStalePayments } from "./stale-payment.job";
+import { blockOverdueAccounts } from "./account-block.job";
 import { getSecret } from "../modules/payments/mypvit.client";
 import { isMypvitConfigured, configuredOperators } from "../config/env";
 
@@ -10,7 +11,10 @@ export function startScheduler() {
   cron.schedule("0 6 * * *", async () => {
     const penaltyResult = await applyLatePenalties();
     const reminderResult = await sendRepaymentReminders();
-    console.log("[scheduler]", penaltyResult, reminderResult);
+    // Après la pénalité/rappel du jour, on regarde qui a dépassé 3 jours de
+    // retard depuis le début de son retard (voir account-block.job.ts).
+    const blockResult = await blockOverdueAccounts();
+    console.log("[scheduler]", penaltyResult, reminderResult, blockResult);
   });
 
   // La clé secrète MyPVit expire au bout d'1h : on la renouvelle toutes les 45 min,
