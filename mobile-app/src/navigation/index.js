@@ -19,6 +19,7 @@ import ReferralsScreen from "../screens/ReferralsScreen";
 import NotificationsScreen from "../screens/NotificationsScreen";
 import ProfileScreen from "../screens/ProfileScreen";
 import MessagesScreen from "../screens/MessagesScreen";
+import PremiumScreen from "../screens/PremiumScreen";
 
 import AdminDashboardScreen from "../screens/admin/AdminDashboardScreen";
 import AdminAidRequestsScreen from "../screens/admin/AdminAidRequestsScreen";
@@ -245,6 +246,7 @@ export default function RootNavigator() {
               <RootStack.Screen name="Onboarding" component={OnboardingScreen} />
               <RootStack.Screen name="Notifications" component={NotificationsScreen} />
               <RootStack.Screen name="Aides" component={AidNavigator} />
+              <RootStack.Screen name="Premium" component={PremiumScreen} />
             </>
           )
         ) : (

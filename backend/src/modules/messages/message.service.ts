@@ -58,6 +58,7 @@ export async function listConversationsForAdmin() {
       id: true,
       name: true,
       phone: true,
+      isPremium: true,
       clientMessages: {
         orderBy: { createdAt: "desc" },
         take: 1,
@@ -77,10 +78,14 @@ export async function listConversationsForAdmin() {
       clientId: c.id,
       name: c.name,
       phone: c.phone,
+      isPremium: c.isPremium,
       lastMessage: c.clientMessages[0] || null,
       unreadCount: c._count.clientMessages,
     }))
     .sort((a, b) => {
+      // Support prioritaire AIFI+ : leurs conversations remontent toujours
+      // en tête, avant le tri habituel par message le plus récent.
+      if (a.isPremium !== b.isPremium) return a.isPremium ? -1 : 1;
       const dateA = a.lastMessage?.createdAt?.getTime() ?? 0;
       const dateB = b.lastMessage?.createdAt?.getTime() ?? 0;
       return dateB - dateA;

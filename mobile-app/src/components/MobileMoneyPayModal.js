@@ -19,13 +19,17 @@ const POLL_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes, comme recommandé par MyPVi
  * `mode` : "full" solde le reste dû en un clic (montant fixe, non modifiable).
  *          "partial" ("faire une avance") laisse le client choisir un montant,
  *          plafonné au reste dû et soumis au minimum de remboursement partiel.
+ * `purpose` : "repayment" (défaut, comportement inchangé) ou "premium" — dans
+ *          ce second cas la modale sert à payer l'abonnement AIFI+ : montant
+ *          fixe (`fixedAmount`), pas de `aidRequest`, endpoint dédié.
  * `onDone(success)` est appelé à la fin (paiement confirmé, échoué, ou
  * abandonné) pour que l'écran parent recharge.
  * `onFallbackManual` permet de basculer vers la déclaration manuelle si le
- * paiement échoue ou traîne trop longtemps.
+ * paiement échoue ou traîne trop longtemps (ignoré en mode "premium").
  */
 export default function MobileMoneyPayModal({
   visible, aidRequest, remaining, mode = "full", minRepaymentAmount,
+  purpose = "repayment", fixedAmount,
   onClose, onDone, onFallbackManual,
 }) {
   const { user } = useAuth();
@@ -39,8 +43,9 @@ export default function MobileMoneyPayModal({
   const pollRef = useRef(null);
   const timeoutRef = useRef(null);
 
-  const isPartial = mode === "partial";
-  const effectiveAmount = isPartial ? amount : String(remaining || "");
+  const isPremium = purpose === "premium";
+  const isPartial = !isPremium && mode === "partial";
+  const effectiveAmount = isPremium ? String(fixedAmount || "") : isPartial ? amount : String(remaining || "");
 
   useEffect(() => {
     if (visible) {
@@ -59,10 +64,10 @@ export default function MobileMoneyPayModal({
   async function submit() {
     const value = parseInt(effectiveAmount, 10);
     if (!value || value <= 0) return setError("Entre un montant valide.");
-    if (remaining != null && value > remaining) {
+    if (!isPremium && remaining != null && value > remaining) {
       return setError(`Le montant ne peut pas dépasser le reste dû (${money(remaining)} FCFA).`);
     }
-    const isFinalPayment = remaining != null && value === remaining;
+    const isFinalPayment = !isPremium && remaining != null && value === remaining;
     if (isPartial && !isFinalPayment && minRepaymentAmount && value < minRepaymentAmount) {
       return setError(`Le montant minimum d'une avance est de ${money(minRepaymentAmount)} FCFA.`);
     }
@@ -75,12 +80,11 @@ export default function MobileMoneyPayModal({
     setError("");
     setStage("pending");
     try {
-      const { data } = await api.post(`/client/aid-requests/${aidRequest.id}/repayments/pay`, {
-        amount: value,
-        operatorCode: operator,
-        phone: payerPhone.trim(),
-        name: payerName.trim(),
-      });
+      const payUrl = isPremium ? "/client/premium/subscribe" : `/client/aid-requests/${aidRequest.id}/repayments/pay`;
+      const payload = isPremium
+        ? { operatorCode: operator, phone: payerPhone.trim(), name: payerName.trim() }
+        : { amount: value, operatorCode: operator, phone: payerPhone.trim(), name: payerName.trim() };
+      const { data } = await api.post(payUrl, payload);
       pollStatus(data.transactionId);
     } catch (err) {
       setError(apiErrorMessage(err));
@@ -126,9 +130,9 @@ export default function MobileMoneyPayModal({
         <View style={styles.card}>
           {stage === "form" && (
             <>
-              <Text style={styles.title}>{isPartial ? "Faire une avance" : "Rembourser"}</Text>
+              <Text style={styles.title}>{isPremium ? "Passer AIFI+" : isPartial ? "Faire une avance" : "Rembourser"}</Text>
 
-              {remaining != null && (
+              {!isPremium && remaining != null && (
                 <View style={styles.remainingBox}>
                   <Text style={styles.remainingLabel}>Reste dû</Text>
                   <Text style={styles.remainingValue}>{money(remaining)} FCFA</Text>
@@ -154,7 +158,11 @@ export default function MobileMoneyPayModal({
                 ))}
               </View>
 
-              {isPartial ? (
+              {isPremium ? (
+                <View style={[styles.fixedAmountBox, { backgroundColor: colors.premium }]}>
+                  <Text style={styles.fixedAmountText}>Abonnement mensuel : {money(fixedAmount)} FCFA</Text>
+                </View>
+              ) : isPartial ? (
                 <>
                   <Text style={styles.label}>Montant de l'avance (FCFA)</Text>
                   <TextInput
@@ -198,7 +206,7 @@ export default function MobileMoneyPayModal({
               {!!error && <Text style={{ color: colors.danger, marginTop: 10, marginBottom: 2 }}>{error}</Text>}
 
               <PrimaryButton
-                title={isPartial ? "Envoyer l'avance" : `Rembourser ${remaining != null ? money(remaining) + " FCFA" : ""}`}
+                title={isPremium ? "S'abonner" : isPartial ? "Envoyer l'avance" : `Rembourser ${remaining != null ? money(remaining) + " FCFA" : ""}`}
                 onPress={submit}
                 style={{ marginTop: 14 }}
               />
@@ -210,7 +218,7 @@ export default function MobileMoneyPayModal({
 
           {stage === "pending" && (
             <View style={{ alignItems: "center", paddingVertical: 10 }}>
-              <ActivityIndicator color={colors.gold} size="large" />
+              <ActivityIndicator color={isPremium ? colors.premium : colors.gold} size="large" />
               <Text style={[styles.title, { marginTop: 16, textAlign: "center" }]}>
                 {operator === "VISA_MASTERCARD" ? "Valide avec le code reçu par SMS" : "Valide sur ton téléphone"}
               </Text>
@@ -225,14 +233,16 @@ export default function MobileMoneyPayModal({
 
           {stage === "success" && (
             <View style={{ alignItems: "center", paddingVertical: 10 }}>
-              <View style={styles.successBadge}>
-                <Text style={{ fontSize: 34, color: "#fff" }}>✓</Text>
+              <View style={[styles.successBadge, isPremium && { backgroundColor: colors.premium }]}>
+                <Text style={{ fontSize: 34, color: "#fff" }}>{isPremium ? "👑" : "✓"}</Text>
               </View>
-              <Text style={[styles.title, { textAlign: "center", color: colors.success, marginTop: 14 }]}>
-                {isPartial ? "Avance confirmée" : "Remboursement confirmé"}
+              <Text style={[styles.title, { textAlign: "center", color: isPremium ? colors.premium : colors.success, marginTop: 14 }]}>
+                {isPremium ? "Bienvenue dans AIFI+" : isPartial ? "Avance confirmée" : "Remboursement confirmé"}
               </Text>
               <Text style={[styles.subtitle, { textAlign: "center", marginBottom: 4 }]}>
-                {isPartial
+                {isPremium
+                  ? "Ton abonnement est actif. Profite dès maintenant de tous tes avantages."
+                  : isPartial
                   ? "Ton avance a bien été reçue et déduite de ce que tu dois."
                   : "Ton solde est réglé, merci !"}
               </Text>
@@ -257,7 +267,7 @@ export default function MobileMoneyPayModal({
                     {confirmedAt?.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}
                   </Text>
                 </View>
-                {remaining != null && (
+                {!isPremium && remaining != null && (
                   <View style={[styles.receiptRow, { borderTopWidth: 1, borderTopColor: colors.line, paddingTop: 10, marginTop: 4 }]}>
                     <Text style={styles.receiptLabel}>Reste dû après cette opération</Text>
                     <Text style={[styles.receiptValue, { fontWeight: "800" }]}>
@@ -267,7 +277,11 @@ export default function MobileMoneyPayModal({
                 )}
               </View>
 
-              <PrimaryButton title="Fermer" onPress={close} style={{ marginTop: 18, width: "100%" }} />
+              <PrimaryButton
+                title="Fermer"
+                onPress={close}
+                style={{ marginTop: 18, width: "100%", backgroundColor: isPremium ? colors.premium : colors.gold }}
+              />
             </View>
           )}
 
@@ -280,15 +294,19 @@ export default function MobileMoneyPayModal({
               <Text style={[styles.subtitle, { textAlign: "center" }]}>
                 {stage === "failed"
                   ? "Le paiement n'a pas abouti (fonds insuffisants, annulation…). Tu peux réessayer."
+                  : isPremium
+                  ? "On n'a pas encore reçu la confirmation. Si l'argent a été débité, contacte l'administrateur par message pour qu'il vérifie."
                   : "On n'a pas encore reçu la confirmation. Si l'argent a été débité, déclare-le manuellement pour que l'admin vérifie."}
               </Text>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 16, width: "100%" }}>
                 <PrimaryButton title="Réessayer" variant="outline" onPress={() => setStage("form")} style={{ flex: 1 }} />
-                <PrimaryButton
-                  title="Déclarer manuellement"
-                  onPress={() => { close(); onFallbackManual?.(); }}
-                  style={{ flex: 1 }}
-                />
+                {!isPremium && (
+                  <PrimaryButton
+                    title="Déclarer manuellement"
+                    onPress={() => { close(); onFallbackManual?.(); }}
+                    style={{ flex: 1 }}
+                  />
+                )}
               </View>
             </View>
           )}

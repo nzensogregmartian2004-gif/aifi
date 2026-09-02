@@ -2,7 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { requireAdmin } from "../middleware/requireAdmin";
 import { recordRepayment, confirmRepaymentDeclaration, rejectRepaymentDeclaration } from "../modules/repayments/repayment.service";
-import { addPoints } from "../modules/points/points.service";
+import { addPoints, recomputeCeilingForUser } from "../modules/points/points.service";
 import { creditWallet } from "../modules/wallet/wallet.service";
 import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal } from "../modules/wallet/withdrawal.service";
 import { getAdminDashboard } from "../modules/dashboard/admin-dashboard.service";
@@ -112,6 +112,46 @@ router.get("/users/:id", async (req, res) => {
   }
 });
 
+router.post("/users/:id/premium", async (req, res) => {
+  try {
+    const { isPremium } = req.body as { isPremium: boolean };
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: req.params.id as string } });
+    // Activation/désactivation manuelle par un admin : accès à vie, pas de
+    // date d'expiration (contrairement à un abonnement payé par le client).
+    const user = await prisma.user.update({
+      where: { id: req.params.id as string },
+      data: {
+        isPremium: !!isPremium,
+        premiumSince: isPremium ? before.premiumSince ?? new Date() : before.premiumSince,
+        premiumExpiresAt: isPremium ? null : null,
+      },
+    });
+
+    await recomputeCeilingForUser(user.id);
+
+    await logAction({
+      adminId: req.auth!.userId,
+      action: isPremium ? "user_premium_activate" : "user_premium_deactivate",
+      entityType: "User",
+      entityId: user.id,
+      before: { isPremium: before.isPremium },
+      after: { isPremium: user.isPremium },
+    });
+
+    await notifyUser(
+      user.id,
+      isPremium ? "premium_activated" : "premium_deactivated",
+      isPremium
+        ? "Ton compte est passé AIFI+ ! Profite des commissions de parrainage, du plafond majoré et des frais réduits."
+        : "Ton abonnement AIFI+ a été désactivé."
+    );
+
+    res.json({ id: user.id, isPremium: user.isPremium, premiumSince: user.premiumSince, premiumExpiresAt: user.premiumExpiresAt });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post("/users/:id/validate", async (req, res) => {
   try {
     const user = await prisma.user.update({
@@ -212,9 +252,14 @@ router.get("/aid-requests", async (req, res) => {
     if (status) where.status = status;
     const requests = await prisma.aidRequest.findMany({
       where,
-      include: { user: { select: { id: true, name: true, phone: true } }, repayments: true },
-      orderBy: { createdAt: "desc" },
+      include: { user: { select: { id: true, name: true, phone: true, isPremium: true } }, repayments: true },
+      orderBy: { createdAt: "asc" },
     });
+    // Priorité AIFI+ : leurs demandes remontent toujours en tête de liste.
+    // Prisma ne trie pas sur un champ de relation directement, donc ce tri
+    // se fait après coup (le tri par ancienneté ci-dessus reste la règle au
+    // sein de chaque groupe, premium comme non-premium).
+    requests.sort((a: any, b: any) => (a.user.isPremium === b.user.isPremium ? 0 : a.user.isPremium ? -1 : 1));
     res.json(requests);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

@@ -73,6 +73,12 @@ export const payRepaymentSchema = z.object({
   name: z.string().min(2).max(100).optional(),
 });
 
+export const premiumSubscribeSchema = z.object({
+  operatorCode: z.enum(["AIRTEL_MONEY", "MOOV_MONEY", "VISA_MASTERCARD"]),
+  phone: z.string().min(6).max(20).optional(),
+  name: z.string().min(2).max(100).optional(),
+});
+
 export const rejectDeclarationSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 });
@@ -103,6 +109,11 @@ export const settingsUpdateSchema = z.object({
   minRepaymentAmount: z.coerce.number().int().min(0).max(10_000_000).optional(),
   latePenaltyPoints: z.coerce.number().int().min(0).max(1000).optional(),
   serviceFeePercent: z.coerce.number().min(0).max(500).optional(),
+  premiumServiceFeePercent: z.coerce.number().min(0).max(500).optional(),
+  premiumGraceDays: z.coerce.number().int().min(0).max(60).optional(),
+  premiumCeilingMultiplier: z.coerce.number().int().min(1).max(20).optional(),
+  premiumMaxCeiling: z.coerce.number().int().min(0).max(10_000_000).optional(),
+  premiumMonthlyPrice: z.coerce.number().int().min(0).max(1_000_000).optional(),
 });
 
 export const durationTierSchema = z.object({

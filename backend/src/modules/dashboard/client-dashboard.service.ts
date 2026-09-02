@@ -32,11 +32,19 @@ export async function getClientDashboard(userId: string) {
   const walletBalance = await getWalletBalance(userId);
   const ceilingAvailable = await getAvailableCeiling(userId);
 
+  // Avantage AIFI+ : +20 sur le niveau de confiance affiché. Ça ne touche
+  // que l'affichage (et donc le libellé de palier) — les points réels
+  // stockés, eux, restent inchangés et continuent de piloter le plafond
+  // normalement (le plafond profite déjà de son propre bonus premium).
+  const displayedPoints = user.isPremium ? user.points + 20 : user.points;
+
   return {
     name: user.name,
     referralCode: user.referralCode,
-    trustLevel: getTrustLevel(user.points),
-    points: user.points,
+    trustLevel: getTrustLevel(displayedPoints),
+    points: displayedPoints,
+    isPremium: user.isPremium,
+    premiumExpiresAt: user.premiumExpiresAt,
     ceilingAllowed: user.ceiling,
     ceilingUsed: totalUsed,
     ceilingAvailable,

@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, RefreshControl } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../../api/client";
 import { Card, ScreenTitle, EmptyState } from "../../components/ui";
 import { colors } from "../../theme";
@@ -46,7 +47,15 @@ export default function AdminConversationsScreen({ navigation }) {
           <TouchableOpacity onPress={() => navigation.navigate("AdminChat", { clientId: item.clientId, name: item.name })}>
             <Card style={{ flexDirection: "row", alignItems: "center" }}>
               <View style={{ flex: 1 }}>
-                <Text style={{ fontWeight: "700", fontSize: 15 }}>{item.name}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Text style={{ fontWeight: "700", fontSize: 15 }}>{item.name}</Text>
+                  {item.isPremium && (
+                    <View style={styles.vipBadge}>
+                      <Ionicons name="sparkles" size={9} color="#fff" />
+                      <Text style={styles.vipBadgeText}>VIP</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={{ color: colors.inkSoft, fontSize: 12.5 }} numberOfLines={1}>
                   {item.lastMessage?.imageUrl ? "📎 Photo" : item.lastMessage?.text || "…"}
                 </Text>
@@ -70,4 +79,9 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center", paddingHorizontal: 6,
   },
   badgeText: { color: colors.white, fontWeight: "700", fontSize: 12 },
+  vipBadge: {
+    flexDirection: "row", alignItems: "center", backgroundColor: colors.premium,
+    borderRadius: 100, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6, gap: 3,
+  },
+  vipBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
 });

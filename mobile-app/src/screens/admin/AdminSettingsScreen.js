@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, TextInput, StyleSheet, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../../api/client";
 import { Card, ScreenTitle, PrimaryButton, EmptyState } from "../../components/ui";
 import { colors, money } from "../../theme";
@@ -15,6 +16,16 @@ const SETTINGS_FIELDS = [
   { key: "latePenaltyPoints", label: "Pénalité de retard (points)" },
   { key: "reminderDaysBefore", label: "Rappel avant échéance (jours)" },
 ];
+
+const PREMIUM_SETTINGS_FIELDS = [
+  { key: "premiumMonthlyPrice", label: "Prix de l'abonnement AIFI+ (FCFA / mois)" },
+  { key: "premiumServiceFeePercent", label: "Frais de service AIFI+ (%) — remplace le taux normal" },
+  { key: "premiumCeilingMultiplier", label: "Multiplicateur de plafond AIFI+ (ex : 3 = ×3)" },
+  { key: "premiumMaxCeiling", label: "Plafond maximum AIFI+, même avec le multiplicateur (FCFA)" },
+  { key: "premiumGraceDays", label: "Jours de sursis AIFI+ avant pénalité de retard" },
+];
+
+const ALL_SETTINGS_FIELDS = [...SETTINGS_FIELDS, ...PREMIUM_SETTINGS_FIELDS];
 
 export default function AdminSettingsScreen() {
   const [settings, setSettings] = useState(null);
@@ -40,7 +51,7 @@ export default function AdminSettingsScreen() {
     setError("");
     try {
       const payload = {};
-      SETTINGS_FIELDS.forEach((f) => { payload[f.key] = Number(settings[f.key]); });
+      ALL_SETTINGS_FIELDS.forEach((f) => { payload[f.key] = Number(settings[f.key]); });
       const { data } = await api.patch("/admin/settings", payload);
       setSettings(data);
       Alert.alert("Enregistré", "Les réglages généraux ont été mis à jour.");
@@ -129,6 +140,41 @@ export default function AdminSettingsScreen() {
                 </View>
               ))}
               <PrimaryButton title="Enregistrer" onPress={saveSettings} loading={savingSettings} style={{ marginTop: 12 }} />
+            </>
+          )}
+        </Card>
+
+        <Card style={styles.premiumCard}>
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}>
+            <Ionicons name="sparkles" size={17} color={colors.premium} />
+            <Text style={[styles.cardTitle, { marginLeft: 8, marginBottom: 0 }]}>AIFI+</Text>
+          </View>
+          <Text style={styles.subText}>
+            Ces réglages définissent les avantages des membres AIFI+ : frais réduits, plafond majoré (multiplicateur
+            plafonné dur), sursis de retard et prix de l'abonnement. Le badge et l'accès sont accordés soit par
+            paiement (renouvellement automatique), soit manuellement depuis la fiche d'un client.
+          </Text>
+          {!settings ? (
+            <Text style={styles.muted}>Chargement...</Text>
+          ) : (
+            <>
+              {PREMIUM_SETTINGS_FIELDS.map((f) => (
+                <View key={f.key}>
+                  <Text style={styles.label}>{f.label}</Text>
+                  <TextInput
+                    style={styles.input}
+                    keyboardType="numeric"
+                    value={String(settings[f.key] ?? "")}
+                    onChangeText={(v) => setSettings({ ...settings, [f.key]: v })}
+                  />
+                </View>
+              ))}
+              <PrimaryButton
+                title="Enregistrer"
+                onPress={saveSettings}
+                loading={savingSettings}
+                style={{ marginTop: 12, backgroundColor: colors.premium }}
+              />
             </>
           )}
         </Card>
@@ -232,4 +278,5 @@ const styles = StyleSheet.create({
   rowText: { fontSize: 14, color: colors.ink, fontWeight: "600" },
   rowBtn: { paddingHorizontal: 10 },
   addRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+  premiumCard: { backgroundColor: colors.premiumSoft },
 });

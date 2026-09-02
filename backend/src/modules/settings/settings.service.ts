@@ -11,6 +11,12 @@ interface SettingsUpdate {
   minWithdrawal?: number;
   minRepaymentAmount?: number;
   latePenaltyPoints?: number;
+  serviceFeePercent?: number;
+  premiumServiceFeePercent?: number;
+  premiumGraceDays?: number;
+  premiumCeilingMultiplier?: number;
+  premiumMaxCeiling?: number;
+  premiumMonthlyPrice?: number;
 }
 
 export async function updateSettings(data: SettingsUpdate) {

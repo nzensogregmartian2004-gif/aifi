@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, FlatList, StyleSheet, RefreshControl, Modal, TextInput, TouchableOpacity } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../../api/client";
 import { Card, ScreenTitle, Badge, PrimaryButton, EmptyState } from "../../components/ui";
 import ImageAttach from "../../components/ImageAttach";
@@ -172,7 +173,15 @@ export default function AdminAidRequestsScreen({ navigation }) {
             <Card>
               <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: "700", fontSize: 15 }}>{item.user.name}</Text>
+                  <View style={{ flexDirection: "row", alignItems: "center" }}>
+                    <Text style={{ fontWeight: "700", fontSize: 15 }}>{item.user.name}</Text>
+                    {item.user.isPremium && (
+                      <View style={styles.vipBadge}>
+                        <Ionicons name="sparkles" size={9} color="#fff" />
+                        <Text style={styles.vipBadgeText}>VIP</Text>
+                      </View>
+                    )}
+                  </View>
                   <Text style={{ color: colors.inkSoft, fontSize: 12.5 }}>{item.user.phone}</Text>
                 </View>
                 <Badge status={item.status} />
@@ -361,4 +370,9 @@ const styles = StyleSheet.create({
   receivingBox: { backgroundColor: colors.paper, borderRadius: 10, padding: 10, marginTop: 8 },
   receivingTitle: { fontSize: 10.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", marginBottom: 4 },
   receivingLine: { fontSize: 12.5, color: colors.ink, fontWeight: "600" },
+  vipBadge: {
+    flexDirection: "row", alignItems: "center", backgroundColor: colors.premium,
+    borderRadius: 100, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6, gap: 3,
+  },
+  vipBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
 });

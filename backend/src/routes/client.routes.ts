@@ -6,7 +6,7 @@ import { requestWithdrawal } from "../modules/wallet/withdrawal.service";
 import { requestAid } from "../modules/aid-requests/aid-request.service";
 import { declareRepayment } from "../modules/repayments/repayment.service";
 import { sendClientMessage, getThread, markThreadRead } from "../modules/messages/message.service";
-import { startRepaymentPayment, getPaymentStatus } from "../modules/payments/payment.service";
+import { startRepaymentPayment, getPaymentStatus, startPremiumSubscriptionPayment } from "../modules/payments/payment.service";
 import { detectOperator } from "../modules/payments/mypvit.client";
 import { isMypvitConfigured } from "../config/env";
 import { validateBody } from "../middleware/validate";
@@ -16,6 +16,7 @@ import {
   declareRepaymentSchema,
   payRepaymentSchema,
   sendMessageSchema,
+  premiumSubscribeSchema,
 } from "../validation/schemas";
 
 const router = Router();
@@ -33,6 +34,10 @@ router.get("/settings", async (_req, res) => {
     minRepaymentAmount: settings.minRepaymentAmount,
     minWithdrawal: settings.minWithdrawal,
     serviceFeePercent: settings.serviceFeePercent,
+    premiumServiceFeePercent: settings.premiumServiceFeePercent,
+    premiumCeilingMultiplier: settings.premiumCeilingMultiplier,
+    premiumMaxCeiling: settings.premiumMaxCeiling,
+    premiumMonthlyPrice: settings.premiumMonthlyPrice,
   });
 });
 
@@ -110,6 +115,19 @@ router.post("/aid-requests/:id/repayments/pay", validateBody(payRepaymentSchema)
     const op = operatorCode || detectOperator((await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } })).phone);
     if (!op) throw new Error("Impossible de déterminer l'opérateur Mobile Money. Précise-le.");
     const result = await startRepaymentPayment(req.auth!.userId, (req.params.id as string), amount, op, phone, name);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/premium/subscribe", validateBody(premiumSubscribeSchema), async (req, res) => {
+  try {
+    if (!isMypvitConfigured()) {
+      throw new Error("Le paiement Mobile Money n'est pas encore activé.");
+    }
+    const { operatorCode, phone, name } = req.body;
+    const result = await startPremiumSubscriptionPayment(req.auth!.userId, operatorCode, phone, name);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });

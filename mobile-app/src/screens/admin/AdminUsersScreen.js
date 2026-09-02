@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, FlatList, TextInput, StyleSheet, RefreshControl, TouchableOpacity } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../../api/client";
 import { Card, ScreenTitle, Badge, Seal, EmptyState } from "../../components/ui";
 import { colors, money } from "../../theme";
@@ -56,7 +57,15 @@ export default function AdminUsersScreen({ navigation }) {
             <Card style={{ flexDirection: "row", alignItems: "center" }}>
               <Seal points={item.points} size={40} />
               <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={{ fontWeight: "700", fontSize: 15 }}>{item.name}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <Text style={{ fontWeight: "700", fontSize: 15 }}>{item.name}</Text>
+                  {item.isPremium && (
+                    <View style={styles.premiumBadge}>
+                      <Ionicons name="sparkles" size={9} color="#fff" />
+                      <Text style={styles.premiumBadgeText}>AIFI+</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={{ color: colors.inkSoft, fontSize: 12.5 }}>{item.phone}</Text>
                 <Text style={{ color: colors.inkSoft, fontSize: 12 }}>Plafond : {money(item.ceiling)} FCFA</Text>
               </View>
@@ -74,4 +83,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 10, padding: 12, fontSize: 15,
     backgroundColor: colors.card, marginBottom: 4,
   },
+  premiumBadge: {
+    flexDirection: "row", alignItems: "center", backgroundColor: colors.premium,
+    borderRadius: 100, paddingHorizontal: 6, paddingVertical: 2, marginLeft: 6, gap: 3,
+  },
+  premiumBadgeText: { color: "#fff", fontSize: 9, fontWeight: "800" },
 });

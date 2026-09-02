@@ -40,12 +40,18 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
     const borrower = await tx.user.findUniqueOrThrow({ where: { id: aidRequest.userId } });
 
     if (borrower.referredById) {
-      const settings = await tx.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
-      const commission = Math.floor((amount * settings.commissionPercent) / 100);
-      if (commission > 0) {
-        await tx.walletEntry.create({
-          data: { userId: borrower.referredById, amount: commission, reason: "referral_commission" },
-        });
+      const sponsor = await tx.user.findUniqueOrThrow({ where: { id: borrower.referredById } });
+      // Commission sur remboursement des filleuls = avantage réservé à AIFI+.
+      // Le bonus de parrainage initial (à l'inscription du filleul) reste,
+      // lui, ouvert à tout le monde — seule cette commission récurrente est premium.
+      if (sponsor.isPremium) {
+        const settings = await tx.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+        const commission = Math.floor((amount * settings.commissionPercent) / 100);
+        if (commission > 0) {
+          await tx.walletEntry.create({
+            data: { userId: borrower.referredById, amount: commission, reason: "referral_commission" },
+          });
+        }
       }
     }
 

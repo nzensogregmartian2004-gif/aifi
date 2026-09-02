@@ -53,7 +53,8 @@ export async function requestAid(
   // plus tard dans les paramètres (taux global ou grille des paliers)
   // n'affecte jamais les demandes déjà créées — le client garde exactement
   // ce qu'il a vu et accepté au moment de sa demande.
-  const amountDue = Math.round(amount * (1 + settings.serviceFeePercent / 100));
+  const feePercent = requester.isPremium ? settings.premiumServiceFeePercent : settings.serviceFeePercent;
+  const amountDue = Math.round(amount * (1 + feePercent / 100));
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + durationDays);
 

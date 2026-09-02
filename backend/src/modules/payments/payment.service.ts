@@ -3,6 +3,7 @@ import { initiatePayment, generatePaymentReference, checkTransactionStatus } fro
 import { recordRepayment, getRemainingAmount } from "../repayments/repayment.service";
 import { notifyUser } from "../notifications/notification.service";
 import { OperatorCode } from "../../config/env";
+import { recomputeCeilingForUser } from "../points/points.service";
 
 export async function startRepaymentPayment(
   userId: string,
@@ -70,6 +71,92 @@ export async function startRepaymentPayment(
   }
 }
 
+/**
+ * Démarre le paiement de l'abonnement mensuel AIFI+. Même mécanique que le
+ * remboursement (initiatePayment + webhook), mais purpose="PREMIUM_SUBSCRIPTION"
+ * et pas d'aidRequestId — le traitement du succès (handleMypvitCallback /
+ * attemptStatusRecovery) bifurque sur ce champ pour savoir quoi faire.
+ */
+export async function startPremiumSubscriptionPayment(
+  userId: string,
+  operatorCode: "AIRTEL_MONEY" | "MOOV_MONEY" | "VISA_MASTERCARD",
+  phone: string,
+  payerName?: string
+) {
+  if (operatorCode !== "VISA_MASTERCARD" && !phone) {
+    throw new Error("Le numéro Mobile Money est obligatoire.");
+  }
+
+  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+  const amount = settings.premiumMonthlyPrice;
+  const reference = generatePaymentReference();
+
+  const transaction = await prisma.paymentTransaction.create({
+    data: {
+      reference,
+      userId,
+      amount,
+      operator: operatorCode,
+      status: "PENDING",
+      purpose: "PREMIUM_SUBSCRIPTION",
+    },
+  });
+
+  try {
+    const response = await initiatePayment({
+      amount,
+      phone,
+      reference,
+      operatorCode,
+      freeInfo: "AIFI+",
+    });
+
+    await prisma.paymentTransaction.update({
+      where: { id: transaction.id },
+      data: { providerTransactionId: response.reference_id, rawInitResponse: response as any },
+    });
+
+    return { transactionId: transaction.id, reference, providerStatus: response.status };
+  } catch (err: any) {
+    await prisma.paymentTransaction.update({
+      where: { id: transaction.id },
+      data: { status: "FAILED", rawInitResponse: { error: err.message } },
+    });
+    throw err;
+  }
+}
+
+/**
+ * Active/prolonge l'abonnement AIFI+ suite à un paiement réussi. Si l'abonnement
+ * est encore actif (renouvellement anticipé), on prolonge à partir de la date
+ * d'expiration existante plutôt que depuis aujourd'hui — pour ne pas faire
+ * perdre les jours restants au client qui renouvelle en avance.
+ */
+export async function activatePremiumSubscription(userId: string) {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const now = new Date();
+  const base = user.isPremium && user.premiumExpiresAt && user.premiumExpiresAt > now ? user.premiumExpiresAt : now;
+  const expiresAt = new Date(base);
+  expiresAt.setDate(expiresAt.getDate() + 30);
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      isPremium: true,
+      premiumSince: user.premiumSince ?? now,
+      premiumExpiresAt: expiresAt,
+    },
+  });
+
+  await recomputeCeilingForUser(userId);
+
+  await notifyUser(
+    userId,
+    "premium_activated",
+    `Ton abonnement AIFI+ est actif jusqu'au ${expiresAt.toLocaleDateString("fr-FR")}. Profite de tes avantages !`
+  );
+}
+
 export async function getPaymentStatus(transactionId: string, userId: string) {
   const transaction = await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transactionId } });
   if (transaction.userId !== userId) {
@@ -102,7 +189,9 @@ export async function attemptStatusRecovery(transactionId: string): Promise<"res
 
   if (status === "SUCCESS") {
     await prisma.paymentTransaction.update({ where: { id: transaction.id }, data: { status: "SUCCESS" } });
-    if (transaction.aidRequestId) {
+    if (transaction.purpose === "PREMIUM_SUBSCRIPTION") {
+      await activatePremiumSubscription(transaction.userId);
+    } else if (transaction.aidRequestId) {
       await recordRepayment(transaction.aidRequestId, transaction.amount);
     }
   } else {
@@ -166,7 +255,9 @@ export async function handleMypvitCallback(payload: MypvitCallbackPayload) {
       data: { status: "SUCCESS", rawCallback: payload as any, providerTransactionId: payload.transactionId },
     });
 
-    if (transaction.aidRequestId) {
+    if (transaction.purpose === "PREMIUM_SUBSCRIPTION") {
+      await activatePremiumSubscription(transaction.userId);
+    } else if (transaction.aidRequestId) {
       await recordRepayment(transaction.aidRequestId, transaction.amount);
     }
   } else {

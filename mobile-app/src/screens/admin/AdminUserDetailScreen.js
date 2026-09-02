@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from "react";
 import { View, Text, ScrollView, TextInput, StyleSheet, Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../../api/client";
 import { Card, ScreenTitle, Badge, Seal, PrimaryButton, SectionLabel } from "../../components/ui";
 import { colors, money } from "../../theme";
@@ -70,6 +71,29 @@ export default function AdminUserDetailScreen({ route, navigation }) {
     navigation.navigate("AdminChat", { clientId: userId, name: user.name });
   }
 
+  function confirmTogglePremium() {
+    const next = !user.isPremium;
+    Alert.alert(
+      next ? "Accorder AIFI+" : "Retirer AIFI+",
+      next
+        ? "Ce client aura un accès AIFI+ à vie, sans passer par le paiement. Cette action est enregistrée dans l'historique."
+        : "Ce client perdra immédiatement ses avantages AIFI+.",
+      [
+        { text: "Annuler", style: "cancel" },
+        { text: "Confirmer", onPress: togglePremium },
+      ]
+    );
+  }
+
+  async function togglePremium() {
+    setBusy(true);
+    try {
+      await api.post(`/admin/users/${userId}/premium`, { isPremium: !user.isPremium });
+      await load();
+    } catch (err) { setError(apiErrorMessage(err)); }
+    finally { setBusy(false); }
+  }
+
   if (!user) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.paper, paddingTop: 80, paddingHorizontal: 20 }}>
@@ -84,7 +108,12 @@ export default function AdminUserDetailScreen({ route, navigation }) {
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: colors.paper }} contentContainerStyle={{ padding: 20, paddingTop: 60 }}>
-      <ScreenTitle>{user.name}</ScreenTitle>
+      <ScreenTitle>
+        {user.name}
+        {user.isPremium && (
+          <Text style={{ color: colors.premium, fontSize: 15, fontWeight: "800" }}> ✨ AIFI+</Text>
+        )}
+      </ScreenTitle>
 
       <Card style={{ flexDirection: "row", alignItems: "center" }}>
         <Seal points={user.points} size={54} />
@@ -108,6 +137,27 @@ export default function AdminUserDetailScreen({ route, navigation }) {
         )}
         <PrimaryButton title="Message" variant="outline" onPress={openChat} style={{ flex: 1 }} />
       </View>
+
+      <Card style={[styles.premiumCard, user.isPremium && { backgroundColor: colors.premiumSoft }]}>
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <Ionicons name="sparkles" size={18} color={colors.premium} />
+          <Text style={styles.premiumCardTitle}>AIFI+</Text>
+        </View>
+        <Text style={styles.premiumCardText}>
+          {user.isPremium
+            ? user.premiumExpiresAt
+              ? `Abonnement payé, actif jusqu'au ${new Date(user.premiumExpiresAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" })}.`
+              : "Accès à vie, accordé manuellement par un administrateur."
+            : "Ce client n'est pas membre AIFI+."}
+        </Text>
+        <PrimaryButton
+          title={user.isPremium ? "Retirer l'accès AIFI+" : "Accorder AIFI+ à vie"}
+          variant={user.isPremium ? "outline" : undefined}
+          onPress={confirmTogglePremium}
+          loading={busy}
+          style={[{ marginTop: 10 }, !user.isPremium && { backgroundColor: colors.premium }, user.isPremium && { borderColor: colors.premium }]}
+        />
+      </Card>
 
       <Card>
         <SectionLabel>Plafond</SectionLabel>
@@ -177,4 +227,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", paddingVertical: 8,
     borderTopWidth: 1, borderTopColor: colors.line,
   },
+  premiumCard: { backgroundColor: colors.card },
+  premiumCardTitle: { fontSize: 14.5, fontWeight: "800", color: colors.ink, marginLeft: 8 },
+  premiumCardText: { fontSize: 12.5, color: colors.inkSoft, marginTop: 6, lineHeight: 17 },
 });

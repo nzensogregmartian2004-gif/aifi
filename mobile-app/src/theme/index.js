@@ -22,6 +22,14 @@ export const colors = {
   warn: "#F2A93C",
   warnSoft: "#FEF3E0",
   white: "#ffffff",
+
+  // AIFI+ : un véritable doré (distinct du "gold" bleu ci-dessus, qui est en
+  // fait la couleur d'action principale de l'app) réservé à la marque de
+  // l'abonnement premium — badges, bouton "Passer AIFI+", écran dédié.
+  premium: "#C9962C",
+  premiumLight: "#F0C05C",
+  premiumSoft: "#FBF1DC",
+  premiumInk: "#4A3200",
 };
 
 export const fonts = {

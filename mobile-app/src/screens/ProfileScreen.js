@@ -1,5 +1,7 @@
-import React, { useState } from "react";
-import { View, Text, TextInput, StyleSheet, Alert, ScrollView } from "react-native";
+import React, { useCallback, useState } from "react";
+import { View, Text, TextInput, StyleSheet, Alert, ScrollView, Pressable } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../api/client";
 import { Card, ScreenTitle, PrimaryButton, HelpButton } from "../components/ui";
 import HelpDocModal from "../components/HelpDocModal";
@@ -14,6 +16,16 @@ export default function ProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [helpVisible, setHelpVisible] = useState(false);
+  const [premium, setPremium] = useState(null); // { isPremium, premiumExpiresAt } depuis /client/dashboard
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isAdmin) return;
+      api.get("/client/dashboard")
+        .then(({ data }) => setPremium({ isPremium: data.isPremium, premiumExpiresAt: data.premiumExpiresAt }))
+        .catch(() => {});
+    }, [isAdmin])
+  );
 
   async function submit() {
     setError("");
@@ -47,6 +59,29 @@ export default function ProfileScreen({ navigation }) {
       <ScreenTitle subtitle="Sécurité de ton compte" right={<HelpButton onPress={() => setHelpVisible(true)} />}>
         Mon profil
       </ScreenTitle>
+
+      {!isAdmin && (
+        <Pressable onPress={() => navigation.navigate("Premium")}>
+          <View style={[styles.premiumCard, premium?.isPremium && { backgroundColor: colors.premium }]}>
+            <View style={styles.premiumIconWrap}>
+              <Ionicons name="sparkles" size={20} color={premium?.isPremium ? "#fff" : colors.premium} />
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={[styles.premiumTitle, premium?.isPremium && { color: "#fff" }]}>
+                {premium?.isPremium ? "AIFI+ actif" : "Passer AIFI+"}
+              </Text>
+              <Text style={[styles.premiumSubtitle, premium?.isPremium && { color: "rgba(255,255,255,0.9)" }]}>
+                {premium?.isPremium
+                  ? premium.premiumExpiresAt
+                    ? `Valable jusqu'au ${new Date(premium.premiumExpiresAt).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}`
+                    : "Accès à vie"
+                  : "Frais réduits, plafond majoré, priorité VIP"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={premium?.isPremium ? "#fff" : colors.premium} />
+          </View>
+        </Pressable>
+      )}
 
       {isAdmin && (
         <Card>
@@ -137,4 +172,14 @@ const styles = StyleSheet.create({
     fontSize: 15, backgroundColor: "#fff", color: colors.ink,
   },
   hint: { fontSize: 12.5, color: colors.inkSoft, marginTop: 16, lineHeight: 18 },
+  premiumCard: {
+    flexDirection: "row", alignItems: "center", backgroundColor: colors.premiumSoft,
+    borderRadius: 16, padding: 16, marginBottom: 14,
+  },
+  premiumIconWrap: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.5)",
+    alignItems: "center", justifyContent: "center",
+  },
+  premiumTitle: { fontSize: 14.5, fontWeight: "800", color: colors.premiumInk },
+  premiumSubtitle: { fontSize: 12, color: colors.premiumInk, marginTop: 2 },
 });

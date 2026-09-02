@@ -11,9 +11,20 @@ export async function applyLatePenalties() {
       dueDate: { lt: now },
       latePenaltyAppliedAt: null, // pénalité appliquée une seule fois par demande
     },
+    include: { user: { select: { isPremium: true } } },
   });
 
+  let penalized = 0;
+
   for (const request of overdue) {
+    // Sursis AIFI+ : un membre premium n'est marqué en retard (et pénalisé)
+    // qu'après ce délai supplémentaire passé l'échéance, pas au jour pile.
+    if (request.user.isPremium) {
+      const graceDeadline = new Date(request.dueDate!);
+      graceDeadline.setDate(graceDeadline.getDate() + settings.premiumGraceDays);
+      if (now < graceDeadline) continue;
+    }
+
     await prisma.$transaction(async (tx) => {
       await tx.aidRequest.update({
         where: { id: request.id },
@@ -31,7 +42,8 @@ export async function applyLatePenalties() {
         },
       });
     });
+    penalized++;
   }
 
-  return { penalized: overdue.length };
+  return { penalized };
 }
