@@ -1,4 +1,5 @@
 import { prisma } from "../../db/client";
+import { recomputeCeilingForUser } from "../points/points.service";
 
 export async function getSettings() {
   return prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
@@ -29,8 +30,24 @@ export async function updateSettings(data: SettingsUpdate) {
     throw new Error("commissionPercent ne peut pas dépasser 100");
   }
 
-  return prisma.appSettings.update({
+  const updated = await prisma.appSettings.update({
     where: { id: "singleton" },
     data,
   });
+
+  // Le plafond de chaque client est mis en cache (colonne User.ceiling) pour
+  // éviter de le recalculer à chaque écran. Il faut donc le recalculer
+  // explicitement pour tout le monde dès qu'un réglage qui influence son
+  // calcul change (multiplicateur ou plafond dur AIFI+), sinon les clients
+  // déjà enregistrés ne voient jamais la correction avant leur prochain
+  // changement de points ou de statut premium.
+  const ceilingRelatedKeys: (keyof SettingsUpdate)[] = ["premiumCeilingMultiplier", "premiumMaxCeiling"];
+  if (ceilingRelatedKeys.some((k) => k in data)) {
+    const users = await prisma.user.findMany({ select: { id: true } });
+    for (const u of users) {
+      await recomputeCeilingForUser(u.id);
+    }
+  }
+
+  return updated;
 }
