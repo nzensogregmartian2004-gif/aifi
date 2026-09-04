@@ -67,6 +67,7 @@ model PaymentTransaction {
   aidRequest          AidRequest?   @relation(fields: [aidRequestId], references: [id])
   amount              Int
   operator            String?
+  purpose             String?       // "PREMIUM_SUBSCRIPTION" pour un abonnement AIFI+, null pour un remboursement classique
   status              PaymentStatus @default(PENDING)
   rawInitResponse     Json?
   rawCallback         Json?
@@ -87,6 +88,9 @@ model User {
   status         UserStatus @default(PENDING)
   points         Int        @default(0)
   ceiling        Int        @default(0)
+  isPremium      Boolean    @default(false)
+  premiumSince   DateTime?
+  premiumExpiresAt DateTime?
   referralCode   String     @unique
   referredById   String?
   referredBy     User?      @relation("Referrals", fields: [referredById], references: [id])
@@ -182,6 +186,11 @@ model AppSettings {
   latePenaltyPoints  Int    @default(10)
   reminderDaysBefore Int    @default(2)
   serviceFeePercent  Int    @default(33)
+  premiumServiceFeePercent  Int @default(25)
+  premiumCeilingMultiplier  Int @default(3)
+  premiumMaxCeiling         Int @default(150000)
+  premiumMonthlyPrice       Int @default(5000)
+  premiumGraceDays          Int @default(3)
 }
 
 model DurationTier {
