@@ -108,7 +108,7 @@ export async function startPremiumSubscriptionPayment(
       phone,
       reference,
       operatorCode,
-      freeInfo: "AIFI+",
+      freeInfo: "AIFI PLUS",
     });
 
     await prisma.paymentTransaction.update({
