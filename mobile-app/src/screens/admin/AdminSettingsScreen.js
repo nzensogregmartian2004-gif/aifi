@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, TextInput, StyleSheet, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Pressable } from "react-native";
+import { View, Text, TextInput, StyleSheet, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../../api/client";
@@ -37,7 +37,6 @@ export default function AdminSettingsScreen() {
   const [newDurationTier, setNewDurationTier] = useState({ minAmount: "", durationDays: "" });
   const [savingDurationTier, setSavingDurationTier] = useState(false);
   const [error, setError] = useState("");
-  const [savingReceiving, setSavingReceiving] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
   const [resetting, setResetting] = useState(false);
 
@@ -111,24 +110,6 @@ export default function AdminSettingsScreen() {
       load();
     } catch (err) {
       Alert.alert("Erreur", apiErrorMessage(err));
-    }
-  }
-
-  async function saveReceivingInfo() {
-    setSavingReceiving(true);
-    setError("");
-    try {
-      const { data } = await api.patch("/admin/settings", {
-        repaymentReceivingOperator: settings.repaymentReceivingOperator,
-        repaymentReceivingPhone: settings.repaymentReceivingPhone,
-        repaymentReceivingName: settings.repaymentReceivingName,
-      });
-      setSettings(data);
-      Alert.alert("Enregistré", "Les clients verront désormais ce numéro pour un remboursement manuel.");
-    } catch (err) {
-      setError(apiErrorMessage(err));
-    } finally {
-      setSavingReceiving(false);
     }
   }
 
@@ -223,56 +204,6 @@ export default function AdminSettingsScreen() {
                 loading={savingSettings}
                 style={{ marginTop: 12, backgroundColor: colors.premium }}
               />
-            </>
-          )}
-        </Card>
-
-        <Card>
-          <Text style={styles.cardTitle}>Réception des remboursements manuels</Text>
-          <Text style={styles.subText}>
-            Numéro affiché au client quand il choisit de rembourser manuellement (hors paiement automatique) — il
-            saura exactement où envoyer l'argent avant de déclarer son remboursement.
-          </Text>
-          {!settings ? (
-            <Text style={styles.muted}>Chargement...</Text>
-          ) : (
-            <>
-              <Text style={styles.label}>Opérateur</Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {[
-                  { code: "AIRTEL_MONEY", label: "Airtel Money" },
-                  { code: "MOOV_MONEY", label: "Moov Money" },
-                ].map((op) => (
-                  <Pressable
-                    key={op.code}
-                    onPress={() => setSettings({ ...settings, repaymentReceivingOperator: op.code })}
-                    style={[styles.chip, settings.repaymentReceivingOperator === op.code && styles.chipActive]}
-                  >
-                    <Text style={[styles.chipText, settings.repaymentReceivingOperator === op.code && styles.chipTextActive]}>
-                      {op.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Text style={styles.label}>Numéro de réception</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="phone-pad"
-                value={settings.repaymentReceivingPhone || ""}
-                onChangeText={(v) => setSettings({ ...settings, repaymentReceivingPhone: v })}
-                placeholder="ex : 074000000"
-              />
-
-              <Text style={styles.label}>Nom sur le compte</Text>
-              <TextInput
-                style={styles.input}
-                value={settings.repaymentReceivingName || ""}
-                onChangeText={(v) => setSettings({ ...settings, repaymentReceivingName: v })}
-                placeholder="ex : AIFI SARL"
-              />
-
-              <PrimaryButton title="Enregistrer" onPress={saveReceivingInfo} loading={savingReceiving} style={{ marginTop: 12 }} />
             </>
           )}
         </Card>

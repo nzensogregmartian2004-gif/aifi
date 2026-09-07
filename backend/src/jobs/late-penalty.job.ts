@@ -1,5 +1,6 @@
 import { prisma } from "../db/client";
 import { addPoints } from "../modules/points/points.service";
+import { notifyUser } from "../modules/notifications/notification.service";
 
 export async function applyLatePenalties() {
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
@@ -30,18 +31,18 @@ export async function applyLatePenalties() {
         where: { id: request.id },
         data: { status: "LATE", latePenaltyAppliedAt: now },
       });
-
-      await addPoints(request.userId, -settings.latePenaltyPoints, "penalite_retard");
-
-      await tx.notification.create({
-        data: {
-          userId: request.userId,
-          aidRequestId: request.id,
-          type: "late_penalty",
-          message: `Pénalité de ${settings.latePenaltyPoints} points pour retard de remboursement. Si le paiement n'est pas régularisé sous 3 jours, ton compte sera automatiquement bloqué.`,
-        },
-      });
     });
+
+    await addPoints(request.userId, -settings.latePenaltyPoints, "penalite_retard");
+
+    // notifyUser (et non prisma.notification.create) : envoie aussi un vrai
+    // push Expo, pour que le client voie l'alerte même app fermée.
+    await notifyUser(
+      request.userId,
+      "late_penalty",
+      `Pénalité de ${settings.latePenaltyPoints} points pour retard de remboursement. Si le paiement n'est pas régularisé sous 3 jours, ton compte sera automatiquement bloqué.`,
+      request.id
+    );
     penalized++;
   }
 

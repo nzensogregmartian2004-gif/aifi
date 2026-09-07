@@ -1,4 +1,5 @@
 import { prisma } from "../db/client";
+import { notifyUser } from "../modules/notifications/notification.service";
 
 const SHORT_LOAN_DURATION_DAYS = 3;
 const LONG_LOAN_REMINDER_WINDOW_DAYS = 3; // fenêtre des rappels quotidiens : J-2, J-1, J0 (jour de l'échéance)
@@ -57,12 +58,11 @@ export async function sendRepaymentReminders() {
         ? `Ton remboursement de ${request.amount} FCFA arrive à échéance aujourd'hui.`
         : `Ton remboursement de ${request.amount} FCFA arrive à échéance dans ${daysLeft} jour${daysLeft > 1 ? "s" : ""}.`;
 
-    await prisma.$transaction(async (tx) => {
-      await tx.aidRequest.update({ where: { id: request.id }, data: { reminderSentAt: now } });
-      await tx.notification.create({
-        data: { userId: request.userId, aidRequestId: request.id, type: "reminder", message },
-      });
-    });
+    await prisma.aidRequest.update({ where: { id: request.id }, data: { reminderSentAt: now } });
+    // notifyUser crée la notification en-app ET envoie le push Expo réel —
+    // contrairement à un simple prisma.notification.create(), c'est ce qui
+    // fait apparaître le rappel sur le téléphone même app fermée.
+    await notifyUser(request.userId, "reminder", message, request.id);
 
     reminded++;
     // placeholder : brancher ici un envoi SMS/email réel plus tard

@@ -24,13 +24,11 @@ const POLL_TIMEOUT_MS = 3 * 60 * 1000; // 3 minutes, comme recommandé par MyPVi
  *          fixe (`fixedAmount`), pas de `aidRequest`, endpoint dédié.
  * `onDone(success)` est appelé à la fin (paiement confirmé, échoué, ou
  * abandonné) pour que l'écran parent recharge.
- * `onFallbackManual` permet de basculer vers la déclaration manuelle si le
- * paiement échoue ou traîne trop longtemps (ignoré en mode "premium").
  */
 export default function MobileMoneyPayModal({
   visible, aidRequest, remaining, mode = "full", minRepaymentAmount,
   purpose = "repayment", fixedAmount,
-  onClose, onDone, onFallbackManual,
+  onClose, onDone,
 }) {
   const { user } = useAuth();
   const [operator, setOperator] = useState("AIRTEL_MONEY");
@@ -294,19 +292,10 @@ export default function MobileMoneyPayModal({
               <Text style={[styles.subtitle, { textAlign: "center" }]}>
                 {stage === "failed"
                   ? "Le paiement n'a pas abouti (fonds insuffisants, annulation…). Tu peux réessayer."
-                  : isPremium
-                  ? "On n'a pas encore reçu la confirmation. Si l'argent a été débité, contacte l'administrateur par message pour qu'il vérifie."
-                  : "On n'a pas encore reçu la confirmation. Si l'argent a été débité, déclare-le manuellement pour que l'admin vérifie."}
+                  : "On n'a pas encore reçu la confirmation. Si l'argent a été débité, contacte l'administrateur par message pour qu'il vérifie."}
               </Text>
               <View style={{ flexDirection: "row", gap: 10, marginTop: 16, width: "100%" }}>
-                <PrimaryButton title="Réessayer" variant="outline" onPress={() => setStage("form")} style={{ flex: 1 }} />
-                {!isPremium && (
-                  <PrimaryButton
-                    title="Déclarer manuellement"
-                    onPress={() => { close(); onFallbackManual?.(); }}
-                    style={{ flex: 1 }}
-                  />
-                )}
+                <PrimaryButton title="Réessayer" onPress={() => setStage("form")} style={{ flex: 1 }} />
               </View>
             </View>
           )}
