@@ -18,16 +18,27 @@ interface SettingsUpdate {
   premiumCeilingMultiplier?: number;
   premiumMaxCeiling?: number;
   premiumMonthlyPrice?: number;
+  // Numéro sur lequel le business reçoit les remboursements déclarés
+  // manuellement par les clients (affiché côté client avant déclaration).
+  repaymentReceivingOperator?: "AIRTEL_MONEY" | "MOOV_MONEY";
+  repaymentReceivingPhone?: string;
+  repaymentReceivingName?: string;
 }
 
 export async function updateSettings(data: SettingsUpdate) {
   for (const [key, value] of Object.entries(data)) {
-    if (value !== undefined && value < 0) {
+    if (typeof value === "number" && value < 0) {
       throw new Error(`${key} ne peut pas être négatif`);
     }
   }
   if (data.commissionPercent !== undefined && data.commissionPercent > 100) {
     throw new Error("commissionPercent ne peut pas dépasser 100");
+  }
+  if (
+    data.repaymentReceivingOperator !== undefined &&
+    !["AIRTEL_MONEY", "MOOV_MONEY"].includes(data.repaymentReceivingOperator)
+  ) {
+    throw new Error("repaymentReceivingOperator doit être AIRTEL_MONEY ou MOOV_MONEY");
   }
 
   const updated = await prisma.appSettings.update({

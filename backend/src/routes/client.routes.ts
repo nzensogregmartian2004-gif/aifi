@@ -38,6 +38,9 @@ router.get("/settings", async (_req, res) => {
     premiumCeilingMultiplier: settings.premiumCeilingMultiplier,
     premiumMaxCeiling: settings.premiumMaxCeiling,
     premiumMonthlyPrice: settings.premiumMonthlyPrice,
+    repaymentReceivingOperator: settings.repaymentReceivingOperator,
+    repaymentReceivingPhone: settings.repaymentReceivingPhone,
+    repaymentReceivingName: settings.repaymentReceivingName,
   });
 });
 

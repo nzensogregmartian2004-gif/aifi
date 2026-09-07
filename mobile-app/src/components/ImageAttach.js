@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, Text, Image, TouchableOpacity, StyleSheet, ActionSheetIOS, Platform, Alert } from "react-native";
+import { View, Text, Image, TouchableOpacity, StyleSheet, ActionSheetIOS, Platform, Alert, ActivityIndicator } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { colors, radius } from "../theme";
 import { uploadImage, apiErrorMessage } from "../api/client";
@@ -12,6 +12,9 @@ import { uploadImage, apiErrorMessage } from "../api/client";
 export default function ImageAttach({ value, onChange, label = "Joindre une photo justificative" }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  // Aperçu local affiché tout de suite, avant même que l'upload ne parte —
+  // évite l'impression que "rien ne s'est passé" pendant la latence réseau.
+  const [localUri, setLocalUri] = useState(null);
 
   async function pick(fromCamera) {
     const permission = fromCamera
@@ -29,12 +32,14 @@ export default function ImageAttach({ value, onChange, label = "Joindre une phot
     if (result.canceled) return;
 
     setError("");
+    setLocalUri(result.assets[0].uri);
     setUploading(true);
     try {
       const url = await uploadImage(result.assets[0]);
       onChange(url, result.assets[0].uri);
     } catch (err) {
       setError(apiErrorMessage(err));
+      setLocalUri(null);
     } finally {
       setUploading(false);
     }
@@ -58,13 +63,23 @@ export default function ImageAttach({ value, onChange, label = "Joindre une phot
     }
   }
 
+  const previewUri = value?.previewUri || localUri;
+
   return (
     <View style={{ marginTop: 6 }}>
       <TouchableOpacity style={styles.box} onPress={choose} disabled={uploading} activeOpacity={0.75}>
-        {value?.previewUri ? (
-          <Image source={{ uri: value.previewUri }} style={styles.preview} />
+        {previewUri ? (
+          <View style={{ width: "100%" }}>
+            <Image source={{ uri: previewUri }} style={styles.preview} />
+            {uploading && (
+              <View style={styles.uploadOverlay}>
+                <ActivityIndicator color="#fff" />
+                <Text style={styles.uploadOverlayText}>Envoi en cours…</Text>
+              </View>
+            )}
+          </View>
         ) : (
-          <Text style={styles.text}>{uploading ? "Envoi de la photo…" : `📎 ${label}`}</Text>
+          <Text style={styles.text}>📎 {label}</Text>
         )}
       </TouchableOpacity>
       {!!error && <Text style={{ color: colors.danger, fontSize: 12, marginTop: 6 }}>{error}</Text>}
@@ -86,4 +101,9 @@ const styles = StyleSheet.create({
   },
   text: { fontSize: 13.5, color: colors.inkSoft, fontWeight: "600" },
   preview: { width: "100%", height: 160, borderRadius: radius.sm },
+  uploadOverlay: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: radius.sm,
+    backgroundColor: "rgba(15,27,51,0.45)", alignItems: "center", justifyContent: "center", gap: 6,
+  },
+  uploadOverlayText: { color: "#fff", fontSize: 12.5, fontWeight: "700" },
 });

@@ -114,6 +114,9 @@ export const settingsUpdateSchema = z.object({
   premiumCeilingMultiplier: z.coerce.number().int().min(1).max(20).optional(),
   premiumMaxCeiling: z.coerce.number().int().min(0).max(10_000_000).optional(),
   premiumMonthlyPrice: z.coerce.number().int().min(0).max(1_000_000).optional(),
+  repaymentReceivingOperator: z.enum(["AIRTEL_MONEY", "MOOV_MONEY"]).optional(),
+  repaymentReceivingPhone: z.string().min(6).max(20).optional(),
+  repaymentReceivingName: z.string().min(2).max(100).optional(),
 });
 
 export const durationTierSchema = z.object({

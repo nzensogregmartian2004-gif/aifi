@@ -100,6 +100,21 @@ export default function ProfileScreen({ navigation }) {
 
       {isAdmin && (
         <Card>
+          <Text style={styles.cardTitle}>Analytique</Text>
+          <Text style={styles.sectionText}>
+            Croissance des clients, volumes décaissés/remboursés et indicateurs de risque.
+          </Text>
+          <PrimaryButton
+            title="Voir les statistiques"
+            variant="outline"
+            onPress={() => navigation.navigate("AdminAnalytics")}
+            style={{ marginTop: 12 }}
+          />
+        </Card>
+      )}
+
+      {isAdmin && (
+        <Card>
           <Text style={styles.cardTitle}>Administrateurs</Text>
           <Text style={styles.sectionText}>
             Crée un accès direct côté administration pour une autre personne de confiance.

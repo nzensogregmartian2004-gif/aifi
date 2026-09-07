@@ -191,6 +191,9 @@ model AppSettings {
   premiumMaxCeiling         Int @default(150000)
   premiumMonthlyPrice       Int @default(5000)
   premiumGraceDays          Int @default(3)
+  repaymentReceivingOperator String @default("AIRTEL_MONEY") // où le client envoie un remboursement manuel
+  repaymentReceivingPhone    String @default("")
+  repaymentReceivingName     String @default("")
 }
 
 model DurationTier {

@@ -13,6 +13,8 @@ import { notifyUser } from "../modules/notifications/notification.service";
 import { logAction, listAuditLogs } from "../modules/audit/audit.service";
 import { sendAdminMessage, getThread, markThreadRead, listConversationsForAdmin } from "../modules/messages/message.service";
 import settingsRouter from "./admin.settings.routes";
+import { getAnalytics } from "../modules/analytics/analytics.service";
+import { resetAllTestData } from "../modules/admin/reset.service";
 import { prisma } from "../db/client";
 import { getOperators, checkKyc } from "../modules/payments/mypvit.client";
 import { isMypvitConfigured, OperatorCode } from "../config/env";
@@ -488,6 +490,40 @@ router.post("/conversations/:clientId/messages", validateBody(sendMessageSchema)
     const { text, imageUrl } = req.body;
     const message = await sendAdminMessage((req.params.clientId as string), req.auth!.userId, text, imageUrl);
     res.json(message);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/analytics", async (_req, res) => {
+  try {
+    const analytics = await getAnalytics();
+    res.json(analytics);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Remise à zéro complète des données de test avant le vrai lancement en
+// production — irréversible, protégée par une phrase de confirmation exacte
+// envoyée par le client (en plus de la confirmation déjà faite côté écran).
+router.post("/reset-data", async (req, res) => {
+  try {
+    if (req.body?.confirmation !== "REINITIALISER") {
+      return res.status(400).json({ error: "Confirmation manquante ou incorrecte." });
+    }
+    const result = await resetAllTestData();
+    // Journalisé APRÈS la suppression (le journal d'audit lui-même vient
+    // d'être vidé par resetAllTestData) : c'est volontairement la seule
+    // trace qui survit à une remise à zéro.
+    await logAction({
+      adminId: req.auth!.userId,
+      action: "full_data_reset",
+      entityType: "System",
+      after: result,
+      note: "Toutes les données transactionnelles et tous les comptes clients ont été supprimés.",
+    });
+    res.json(result);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

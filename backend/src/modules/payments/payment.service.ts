@@ -5,6 +5,14 @@ import { notifyUser } from "../notifications/notification.service";
 import { OperatorCode } from "../../config/env";
 import { recomputeCeilingForUser } from "../points/points.service";
 
+// Le message d'échec doit rester cohérent avec ce qui a réellement échoué :
+// "déclarer un remboursement manuel" n'a aucun sens pour un abonnement AIFI+.
+function paymentFailedMessage(purpose: string | null): string {
+  return purpose === "PREMIUM_SUBSCRIPTION"
+    ? "Ton paiement pour l'abonnement AIFI+ n'a pas abouti. Tu peux réessayer depuis l'écran AIFI+."
+    : "Ton paiement Mobile Money n'a pas abouti. Tu peux réessayer ou déclarer un remboursement manuel.";
+}
+
 export async function startRepaymentPayment(
   userId: string,
   aidRequestId: string,
@@ -108,7 +116,7 @@ export async function startPremiumSubscriptionPayment(
       phone,
       reference,
       operatorCode,
-      freeInfo: "AIFI Plus",
+      freeInfo: "AIFI PLUS",
     });
 
     await prisma.paymentTransaction.update({
@@ -134,6 +142,19 @@ export async function startPremiumSubscriptionPayment(
  */
 export async function activatePremiumSubscription(userId: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+
+  // Un accès à vie (accordé manuellement par un admin : isPremium=true,
+  // premiumExpiresAt=null) ne doit JAMAIS être dégradé en abonnement à durée
+  // limitée par un paiement — même un paiement réussi ne doit rien changer.
+  if (user.isPremium && user.premiumExpiresAt === null) {
+    await notifyUser(
+      userId,
+      "premium_already_lifetime",
+      "Tu as déjà un accès AIFI+ à vie : ce paiement n'était pas nécessaire. Contacte l'administrateur si tu penses qu'il s'agit d'une erreur."
+    );
+    return;
+  }
+
   const now = new Date();
   const base = user.isPremium && user.premiumExpiresAt && user.premiumExpiresAt > now ? user.premiumExpiresAt : now;
   const expiresAt = new Date(base);
@@ -196,11 +217,7 @@ export async function attemptStatusRecovery(transactionId: string): Promise<"res
     }
   } else {
     await prisma.paymentTransaction.update({ where: { id: transaction.id }, data: { status: "FAILED" } });
-    await notifyUser(
-      transaction.userId,
-      "payment_failed",
-      "Ton paiement Mobile Money n'a pas abouti. Tu peux réessayer ou déclarer un remboursement manuel."
-    );
+    await notifyUser(transaction.userId, "payment_failed", paymentFailedMessage(transaction.purpose));
   }
 
   return "resolved";
@@ -265,11 +282,7 @@ export async function handleMypvitCallback(payload: MypvitCallbackPayload) {
       where: { id: transaction.id },
       data: { status: "FAILED", rawCallback: payload as any, providerTransactionId: payload.transactionId },
     });
-    await notifyUser(
-      transaction.userId,
-      "payment_failed",
-      "Ton paiement Mobile Money n'a pas abouti. Tu peux réessayer ou déclarer un remboursement manuel."
-    );
+    await notifyUser(transaction.userId, "payment_failed", paymentFailedMessage(transaction.purpose));
   }
 
   return { alreadyProcessed: false, unknown: false };

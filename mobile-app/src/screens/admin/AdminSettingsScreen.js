@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, TextInput, StyleSheet, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert } from "react-native";
+import { View, Text, TextInput, StyleSheet, FlatList, KeyboardAvoidingView, Platform, ScrollView, Alert, Pressable } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { api, apiErrorMessage } from "../../api/client";
@@ -37,6 +37,9 @@ export default function AdminSettingsScreen() {
   const [newDurationTier, setNewDurationTier] = useState({ minAmount: "", durationDays: "" });
   const [savingDurationTier, setSavingDurationTier] = useState(false);
   const [error, setError] = useState("");
+  const [savingReceiving, setSavingReceiving] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(() => {
     api.get("/admin/settings").then(({ data }) => setSettings(data)).catch((e) => setError(apiErrorMessage(e)));
@@ -111,6 +114,51 @@ export default function AdminSettingsScreen() {
     }
   }
 
+  async function saveReceivingInfo() {
+    setSavingReceiving(true);
+    setError("");
+    try {
+      const { data } = await api.patch("/admin/settings", {
+        repaymentReceivingOperator: settings.repaymentReceivingOperator,
+        repaymentReceivingPhone: settings.repaymentReceivingPhone,
+        repaymentReceivingName: settings.repaymentReceivingName,
+      });
+      setSettings(data);
+      Alert.alert("Enregistré", "Les clients verront désormais ce numéro pour un remboursement manuel.");
+    } catch (err) {
+      setError(apiErrorMessage(err));
+    } finally {
+      setSavingReceiving(false);
+    }
+  }
+
+  function confirmReset() {
+    Alert.alert(
+      "Tout réinitialiser ?",
+      "Cette action supprime DÉFINITIVEMENT toutes les demandes d'aide, remboursements, paiements, notifications, messages et TOUS les comptes clients. Les réglages et grilles restent inchangés. Ceci est irréversible.",
+      [
+        { text: "Annuler", style: "cancel" },
+        { text: "Oui, tout supprimer", style: "destructive", onPress: performReset },
+      ]
+    );
+  }
+
+  async function performReset() {
+    setResetting(true);
+    try {
+      const { data } = await api.post("/admin/reset-data", { confirmation: "REINITIALISER" });
+      setResetConfirmText("");
+      Alert.alert(
+        "Terminé",
+        `${data.clientsDeleted} compte(s) client, ${data.aidRequestsDeleted} demande(s) d'aide et ${data.paymentsDeleted} transaction(s) supprimés. Base propre pour la production.`
+      );
+    } catch (err) {
+      Alert.alert("Erreur", apiErrorMessage(err));
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.paper }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 60, paddingBottom: 40 }}>
@@ -177,6 +225,81 @@ export default function AdminSettingsScreen() {
               />
             </>
           )}
+        </Card>
+
+        <Card>
+          <Text style={styles.cardTitle}>Réception des remboursements manuels</Text>
+          <Text style={styles.subText}>
+            Numéro affiché au client quand il choisit de rembourser manuellement (hors paiement automatique) — il
+            saura exactement où envoyer l'argent avant de déclarer son remboursement.
+          </Text>
+          {!settings ? (
+            <Text style={styles.muted}>Chargement...</Text>
+          ) : (
+            <>
+              <Text style={styles.label}>Opérateur</Text>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                {[
+                  { code: "AIRTEL_MONEY", label: "Airtel Money" },
+                  { code: "MOOV_MONEY", label: "Moov Money" },
+                ].map((op) => (
+                  <Pressable
+                    key={op.code}
+                    onPress={() => setSettings({ ...settings, repaymentReceivingOperator: op.code })}
+                    style={[styles.chip, settings.repaymentReceivingOperator === op.code && styles.chipActive]}
+                  >
+                    <Text style={[styles.chipText, settings.repaymentReceivingOperator === op.code && styles.chipTextActive]}>
+                      {op.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text style={styles.label}>Numéro de réception</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="phone-pad"
+                value={settings.repaymentReceivingPhone || ""}
+                onChangeText={(v) => setSettings({ ...settings, repaymentReceivingPhone: v })}
+                placeholder="ex : 074000000"
+              />
+
+              <Text style={styles.label}>Nom sur le compte</Text>
+              <TextInput
+                style={styles.input}
+                value={settings.repaymentReceivingName || ""}
+                onChangeText={(v) => setSettings({ ...settings, repaymentReceivingName: v })}
+                placeholder="ex : AIFI SARL"
+              />
+
+              <PrimaryButton title="Enregistrer" onPress={saveReceivingInfo} loading={savingReceiving} style={{ marginTop: 12 }} />
+            </>
+          )}
+        </Card>
+
+        <Card style={styles.dangerCard}>
+          <Text style={[styles.cardTitle, { color: colors.danger }]}>Zone de danger</Text>
+          <Text style={styles.subText}>
+            Supprime définitivement toutes les demandes d'aide, remboursements, paiements, notifications, messages et
+            TOUS les comptes clients — pour repartir d'une base honnête au vrai lancement en production. Les réglages
+            et grilles ci-dessus, ainsi que les comptes administrateurs, sont conservés. Action irréversible.
+          </Text>
+          <Text style={styles.label}>Tape REINITIALISER pour activer le bouton</Text>
+          <TextInput
+            style={styles.input}
+            value={resetConfirmText}
+            onChangeText={setResetConfirmText}
+            placeholder="REINITIALISER"
+            autoCapitalize="characters"
+          />
+          <PrimaryButton
+            title="Tout réinitialiser"
+            variant="danger"
+            disabled={resetConfirmText.trim().toUpperCase() !== "REINITIALISER"}
+            onPress={confirmReset}
+            loading={resetting}
+            style={{ marginTop: 12 }}
+          />
         </Card>
 
         <Card>
@@ -279,4 +402,12 @@ const styles = StyleSheet.create({
   rowBtn: { paddingHorizontal: 10 },
   addRow: { flexDirection: "row", gap: 8, marginTop: 12 },
   premiumCard: { backgroundColor: colors.premiumSoft },
+  dangerCard: { backgroundColor: "#FDEDEC", borderWidth: 1, borderColor: colors.danger },
+  chip: {
+    borderWidth: 1, borderColor: colors.line, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 9,
+    backgroundColor: "#fff",
+  },
+  chipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  chipText: { fontSize: 13, fontWeight: "600", color: colors.ink },
+  chipTextActive: { color: "#fff" },
 });

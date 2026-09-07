@@ -33,6 +33,7 @@ import AdminChatScreen from "../screens/admin/AdminChatScreen";
 import AdminAuditLogScreen from "../screens/admin/AdminAuditLogScreen";
 import AdminManageAdminsScreen from "../screens/admin/AdminManageAdminsScreen";
 import AdminSettingsScreen from "../screens/admin/AdminSettingsScreen";
+import AdminAnalyticsScreen from "../screens/admin/AdminAnalyticsScreen";
 
 const RootStack = createNativeStackNavigator();
 const AidStack = createNativeStackNavigator();
@@ -239,6 +240,7 @@ export default function RootNavigator() {
               <RootStack.Screen name="Main" component={AdminTabs} />
               <RootStack.Screen name="AdminManageAdmins" component={AdminManageAdminsScreen} />
               <RootStack.Screen name="AdminSettings" component={AdminSettingsScreen} />
+              <RootStack.Screen name="AdminAnalytics" component={AdminAnalyticsScreen} />
             </>
           ) : (
             <>

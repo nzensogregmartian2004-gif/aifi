@@ -19,6 +19,7 @@ export default function AidRequestsScreen({ navigation }) {
   const [payMode, setPayMode] = useState("full"); // "full" = Rembourser | "partial" = Faire une avance
   const [mypvitAvailable, setMypvitAvailable] = useState(false);
   const [minRepaymentAmount, setMinRepaymentAmount] = useState(null);
+  const [receiving, setReceiving] = useState(null); // { operator, phone, name } — où envoyer un remboursement manuel
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [proof, setProof] = useState(null);
@@ -34,7 +35,14 @@ export default function AidRequestsScreen({ navigation }) {
     } catch (err) {
       setError(apiErrorMessage(err));
     }
-    api.get("/client/settings").then(({ data }) => setMinRepaymentAmount(data.minRepaymentAmount)).catch(() => {});
+    api.get("/client/settings").then(({ data }) => {
+      setMinRepaymentAmount(data.minRepaymentAmount);
+      setReceiving({
+        operator: data.repaymentReceivingOperator,
+        phone: data.repaymentReceivingPhone,
+        name: data.repaymentReceivingName,
+      });
+    }).catch(() => {});
     api.get("/client/payments/config").then(({ data }) => setMypvitAvailable(data.available)).catch(() => setMypvitAvailable(false));
   }, []);
 
@@ -150,7 +158,7 @@ export default function AidRequestsScreen({ navigation }) {
 
               {canDeclare && (
                 <>
-                  {mypvitAvailable ? (
+                  {mypvitAvailable && (
                     <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                       <PrimaryButton title="Rembourser" onPress={() => openPay(item, "full")} style={{ flex: 1 }} />
                       <PrimaryButton
@@ -160,14 +168,13 @@ export default function AidRequestsScreen({ navigation }) {
                         style={{ flex: 1 }}
                       />
                     </View>
-                  ) : (
-                    <PrimaryButton
-                      title="J'ai remboursé"
-                      variant="outline"
-                      onPress={() => openDeclare(item)}
-                      style={{ marginTop: 10 }}
-                    />
                   )}
+                  <PrimaryButton
+                    title="Rembourser manuellement"
+                    variant="outline"
+                    onPress={() => openDeclare(item)}
+                    style={{ marginTop: 10 }}
+                  />
                 </>
               )}
             </Card>
@@ -188,9 +195,19 @@ export default function AidRequestsScreen({ navigation }) {
                 </Text>
               </View>
             )}
+
+            {!!receiving?.phone && (
+              <View style={styles.receivingBox}>
+                <Text style={styles.receivingTitle}>Envoie ton remboursement à</Text>
+                <Text style={styles.receivingLine}>
+                  {receiving.operator === "MOOV_MONEY" ? "Moov Money" : "Airtel Money"} · {receiving.phone}
+                </Text>
+                <Text style={styles.receivingLine}>Nom sur le compte : {receiving.name}</Text>
+              </View>
+            )}
+
             <Text style={{ fontSize: 13, color: colors.inkSoft, marginTop: 10, marginBottom: 16 }}>
-              Indique le montant que tu as envoyé à l'administrateur (Mobile Money, en main propre, etc.). Il devra le
-              confirmer après vérification.
+              Une fois l'argent envoyé, indique ici le montant. Un administrateur confirmera après vérification.
               {minRepaymentAmount ? ` Minimum ${minRepaymentAmount} FCFA par avance, sauf pour solder complètement.` : ""}
             </Text>
 
@@ -268,4 +285,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10,
     fontSize: 15, color: colors.ink, backgroundColor: colors.paper,
   },
+  receivingBox: { backgroundColor: colors.paper, borderRadius: 10, padding: 12, marginTop: 12 },
+  receivingTitle: { fontSize: 10.5, fontWeight: "700", color: colors.inkSoft, textTransform: "uppercase", marginBottom: 4 },
+  receivingLine: { fontSize: 13.5, color: colors.ink, fontWeight: "600", marginTop: 2 },
 });
