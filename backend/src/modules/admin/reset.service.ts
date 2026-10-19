@@ -1,18 +1,14 @@
 import { prisma } from "../../db/client";
 
 /**
- * Supprime TOUTES les données transactionnelles/de test (demandes d'aide,
- * remboursements, déclarations, transactions de paiement, portefeuille,
- * retraits, notifications, messages, journal d'audit) ainsi que TOUS les
- * comptes clients — pour repartir d'une base honnête au lancement de la
- * vraie production.
+ * Supprime les données transactionnelles et de test (demandes d'aide,
+ * remboursements, déclarations, paiements, portefeuille, retraits, notifications,
+ * messages) ainsi que les comptes clients.
  *
- * Conservé volontairement : les comptes ADMIN, et la configuration métier
- * (AppSettings, DurationTier, CeilingTier) — ce ne sont pas des "valeurs qui
- * s'enregistrent" mais des réglages délibérément choisis par l'admin.
+ * Conservés volontairement : les comptes ADMIN, la configuration (AppSettings,
+ * paliers) et LE JOURNAL D'AUDIT, qui n'est jamais effacé par une réinitialisation.
  *
- * Ordre de suppression = enfants avant parents (aucune cascade en base).
- * Le tout dans une seule transaction : soit tout part, soit rien ne bouge.
+ * Tout est fait dans une seule transaction : soit tout part, soit rien ne bouge.
  */
 export async function resetAllTestData() {
   const [
@@ -24,7 +20,6 @@ export async function resetAllTestData() {
     walletDeleted,
     withdrawalsDeleted,
     notificationsDeleted,
-    auditLogsDeleted,
     clientsDeleted,
   ] = await prisma.$transaction([
     prisma.message.deleteMany({}),
@@ -35,7 +30,6 @@ export async function resetAllTestData() {
     prisma.walletEntry.deleteMany({}),
     prisma.withdrawal.deleteMany({}),
     prisma.notification.deleteMany({}),
-    prisma.auditLog.deleteMany({}),
     prisma.user.deleteMany({ where: { role: "CLIENT" } }),
   ]);
 
@@ -48,7 +42,6 @@ export async function resetAllTestData() {
     walletDeleted: walletDeleted.count,
     withdrawalsDeleted: withdrawalsDeleted.count,
     notificationsDeleted: notificationsDeleted.count,
-    auditLogsDeleted: auditLogsDeleted.count,
     clientsDeleted: clientsDeleted.count,
   };
 }

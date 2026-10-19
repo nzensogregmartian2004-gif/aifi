@@ -24,7 +24,6 @@ export async function getClientDashboard(userId: string) {
     orderBy: { dueDate: "asc" },
   });
 
-  const totalUsed = activeRequests.reduce((sum, r) => sum + r.amount, 0);
   const nextDueDate = activeRequests.find(r => r.dueDate)?.dueDate ?? null;
 
   const referralsCount = await prisma.user.count({ where: { referredById: userId } });
@@ -46,7 +45,8 @@ export async function getClientDashboard(userId: string) {
     isPremium: user.isPremium,
     premiumExpiresAt: user.premiumExpiresAt,
     ceilingAllowed: user.ceiling,
-    ceilingUsed: totalUsed,
+    ceilingUsed: user.ceiling - ceilingAvailable,
+    realPoints: user.points,
     ceilingAvailable,
     aidRequestsCount,
     nextDueDate,

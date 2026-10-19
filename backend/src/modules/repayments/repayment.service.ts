@@ -1,3 +1,4 @@
+import { assertOwnUpload } from "../uploads/upload-ownership";
 import { prisma } from "../../db/client";
 import { addPoints } from "../points/points.service";
 import { creditWallet } from "../wallet/wallet.service";
@@ -15,7 +16,9 @@ export async function getRemainingAmount(aidRequestId: string): Promise<number> 
 
 export async function recordRepayment(aidRequestId: string, amount: number, adminId?: string, proofImageUrl?: string) {
   // Transaction pour éviter une course entre deux remboursements enregistrés en même temps
-  const result = await prisma.$transaction(async (tx) => {
+  let result;
+  try {
+  result = await prisma.$transaction(async (tx) => {
     const aidRequest = await tx.aidRequest.findUniqueOrThrow({
       where: { id: aidRequestId },
       include: { repayments: true },
@@ -71,7 +74,13 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
     }
 
     return { remainingAfter, isPartial, fullyRepaid: remainingAfter === 0, userId: aidRequest.userId };
-  });
+  }, { isolationLevel: "Serializable" });
+  } catch (err: any) {
+    if (err?.code === "P2034") {
+      throw new Error("Un autre remboursement est en cours sur cette aide. Réessaie dans un instant.");
+    }
+    throw err;
+  }
 
   if (adminId) {
     await logAction({
@@ -127,6 +136,8 @@ export async function declareRepayment(
   if (!amount || amount <= 0) {
     throw new Error("Le montant doit être positif");
   }
+
+  await assertOwnUpload(proofImageUrl, userId);
 
   const totalRepaid = aidRequest.repayments.reduce((s, r) => s + r.amount, 0);
   const remaining = aidRequest.amountDue - totalRepaid;

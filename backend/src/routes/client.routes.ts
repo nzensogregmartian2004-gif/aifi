@@ -41,7 +41,15 @@ router.get("/settings", async (_req, res) => {
     repaymentReceivingOperator: settings.repaymentReceivingOperator,
     repaymentReceivingPhone: settings.repaymentReceivingPhone,
     repaymentReceivingName: settings.repaymentReceivingName,
+    communityMessage: settings.communityMessage,
+    communityShareText: settings.communityShareText,
+    communityLinks: settings.communityLinks,
   });
+});
+
+router.get("/ceiling-tiers", async (_req, res) => {
+  const tiers = await prisma.ceilingTier.findMany({ orderBy: { minPoints: "asc" } });
+  res.json(tiers);
 });
 
 router.get("/duration-tiers", async (_req, res) => {

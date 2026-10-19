@@ -4,6 +4,7 @@ import { recordRepayment, getRemainingAmount } from "../repayments/repayment.ser
 import { notifyUser } from "../notifications/notification.service";
 import { OperatorCode } from "../../config/env";
 import { recomputeCeilingForUser } from "../points/points.service";
+import type { PaymentTransaction } from "@prisma/client";
 
 // Le message d'échec doit rester cohérent avec ce qui a réellement échoué :
 // "déclarer un remboursement manuel" n'a aucun sens pour un abonnement AIFI+.
@@ -187,13 +188,46 @@ export async function getPaymentStatus(transactionId: string, userId: string) {
 }
 
 /**
- * Tente de résoudre une transaction PENDING via l'API Check Status, appelée
- * par le job de secours quand le callback n'est jamais arrivé. Idempotent :
- * si la transaction n'est plus PENDING (déjà résolue entre-temps par le
- * callback), on ne fait rien. Ne crédite QUE sur une réponse SUCCESS nette
- * (voir la prudence de checkTransactionStatus) — une réponse ambiguë laisse
- * la transaction PENDING pour que le filet de secours (notification) prenne
- * le relais.
+ * Passe une transaction de PENDING à un état final, de façon atomique.
+ * Renvoie false si une autre opération (callback concurrent, job de rattrapage)
+ * l'a déjà traitée : l'effet métier n'est alors jamais rejoué.
+ */
+async function settleTransaction(
+  tx: PaymentTransaction,
+  finalStatus: "SUCCESS" | "FAILED",
+  extra: { rawCallback?: any; providerTransactionId?: string } = {}
+): Promise<boolean> {
+  const claimed = await prisma.paymentTransaction.updateMany({
+    where: { id: tx.id, status: "PENDING" },
+    data: { status: finalStatus, ...extra },
+  });
+  if (claimed.count !== 1) return false;
+
+  try {
+    if (finalStatus === "SUCCESS") {
+      if (tx.purpose === "PREMIUM_SUBSCRIPTION") {
+        await activatePremiumSubscription(tx.userId);
+      } else if (tx.aidRequestId) {
+        await recordRepayment(tx.aidRequestId, tx.amount);
+      }
+    } else {
+      await notifyUser(tx.userId, "payment_failed", paymentFailedMessage(tx.purpose));
+    }
+  } catch (err) {
+    // L'effet métier a échoué : on remet la transaction en PENDING pour qu'elle
+    // puisse être retraitée, plutôt que de la laisser marquée payée sans effet.
+    await prisma.paymentTransaction.updateMany({
+      where: { id: tx.id, status: finalStatus },
+      data: { status: "PENDING" },
+    });
+    throw err;
+  }
+  return true;
+}
+
+/**
+ * Résout une transaction PENDING en interrogeant MyPVit (Check Status).
+ * Ne crédite que sur une réponse SUCCESS ou FAILED nette ; sinon elle reste PENDING.
  */
 export async function attemptStatusRecovery(transactionId: string): Promise<"resolved" | "still_pending" | "unavailable"> {
   const transaction = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
@@ -203,24 +237,8 @@ export async function attemptStatusRecovery(transactionId: string): Promise<"res
   if (status === null) return "unavailable";
   if (status === "PENDING") return "still_pending";
 
-  // On revérifie juste avant d'écrire, au cas où le callback serait arrivé
-  // entre-temps (évite un double traitement en cas de course).
-  const fresh = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
-  if (!fresh || fresh.status !== "PENDING") return "still_pending";
-
-  if (status === "SUCCESS") {
-    await prisma.paymentTransaction.update({ where: { id: transaction.id }, data: { status: "SUCCESS" } });
-    if (transaction.purpose === "PREMIUM_SUBSCRIPTION") {
-      await activatePremiumSubscription(transaction.userId);
-    } else if (transaction.aidRequestId) {
-      await recordRepayment(transaction.aidRequestId, transaction.amount);
-    }
-  } else {
-    await prisma.paymentTransaction.update({ where: { id: transaction.id }, data: { status: "FAILED" } });
-    await notifyUser(transaction.userId, "payment_failed", paymentFailedMessage(transaction.purpose));
-  }
-
-  return "resolved";
+  const applied = await settleTransaction(transaction, status, {});
+  return applied ? "resolved" : "still_pending";
 }
 
 interface MypvitCallbackPayload {
@@ -233,57 +251,51 @@ interface MypvitCallbackPayload {
 }
 
 /**
- * Traite le webhook MyPVit. Idempotent : si la transaction a déjà été traitée
- * (SUCCESS/FAILED), on se contente de renvoyer l'accusé de réception sans
- * rien recréditer/rejouer.
+ * Traite le webhook MyPVit. Le callback n'est PAS signé, donc il ne décide jamais
+ * seul de l'issue d'un paiement. Il déclenche une vérification auprès de MyPVit :
+ *  - statut confirmé par l'API Check Status : on applique ce statut ;
+ *  - API indisponible : on ne fait confiance au callback que s'il vient d'une IP
+ *    MyPVit explicitement autorisée (MYPVIT_WEBHOOK_ALLOWED_IPS) ;
+ *  - sinon la transaction reste PENDING et le job de rattrapage réessaiera.
  */
-export async function handleMypvitCallback(payload: MypvitCallbackPayload) {
+export async function handleMypvitCallback(
+  payload: MypvitCallbackPayload,
+  opts: { fromAllowlistedIp: boolean }
+) {
   const transaction = await prisma.paymentTransaction.findUnique({
     where: { reference: payload.merchantReferenceId },
   });
+  if (!transaction) return { alreadyProcessed: false, unknown: true };
+  if (transaction.status !== "PENDING") return { alreadyProcessed: true, unknown: false };
 
-  if (!transaction) {
-    // On ne connaît pas cette transaction — on accuse quand même réception
-    // (sinon MyPVit va réessayer indéfiniment) mais on ne traite rien.
-    return { alreadyProcessed: false, unknown: true };
-  }
-
-  if (transaction.status !== "PENDING") {
-    // Déjà traité (rejeu du callback) : idempotence.
-    return { alreadyProcessed: true, unknown: false };
-  }
-
-  // Garde-fou : le montant confirmé par MyPVit doit correspondre à celui qu'on a demandé.
+  // Garde-fou : le montant annoncé doit correspondre au montant demandé.
   if (payload.amount !== transaction.amount) {
-    await prisma.paymentTransaction.update({
-      where: { id: transaction.id },
-      data: {
-        status: "FAILED",
-        rawCallback: payload as any,
-        providerTransactionId: payload.transactionId,
-      },
-    });
+    console.error(
+      `[mypvit callback] montant incohérent pour ${transaction.reference} (reçu ${payload.amount}, attendu ${transaction.amount})`
+    );
     return { alreadyProcessed: false, unknown: false, mismatch: true };
   }
 
-  if (payload.status === "SUCCESS") {
-    await prisma.paymentTransaction.update({
-      where: { id: transaction.id },
-      data: { status: "SUCCESS", rawCallback: payload as any, providerTransactionId: payload.transactionId },
-    });
+  const providerStatus = await checkTransactionStatus(transaction.reference, transaction.operator as OperatorCode);
 
-    if (transaction.purpose === "PREMIUM_SUBSCRIPTION") {
-      await activatePremiumSubscription(transaction.userId);
-    } else if (transaction.aidRequestId) {
-      await recordRepayment(transaction.aidRequestId, transaction.amount);
-    }
-  } else {
-    await prisma.paymentTransaction.update({
-      where: { id: transaction.id },
-      data: { status: "FAILED", rawCallback: payload as any, providerTransactionId: payload.transactionId },
-    });
-    await notifyUser(transaction.userId, "payment_failed", paymentFailedMessage(transaction.purpose));
+  let finalStatus: "SUCCESS" | "FAILED" | null = null;
+  if (providerStatus === "SUCCESS" || providerStatus === "FAILED") {
+    finalStatus = providerStatus;
+  } else if (
+    providerStatus === null &&
+    opts.fromAllowlistedIp &&
+    (payload.status === "SUCCESS" || payload.status === "FAILED")
+  ) {
+    finalStatus = payload.status;
   }
 
-  return { alreadyProcessed: false, unknown: false };
+  if (finalStatus === null) {
+    return { alreadyProcessed: false, unknown: false, pending: true };
+  }
+
+  const applied = await settleTransaction(transaction, finalStatus, {
+    rawCallback: payload as any,
+    providerTransactionId: payload.transactionId,
+  });
+  return { alreadyProcessed: !applied, unknown: false };
 }

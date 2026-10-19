@@ -1,26 +1,35 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../../db/client";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
 import { logAction } from "../audit/audit.service";
 import { giveChange, generateDisbursementReference } from "../payments/mypvit.client";
 import { computeDurationForAmount } from "../durations/duration-tier.service";
 
-export async function getAvailableCeiling(userId: string): Promise<number> {
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+type Db = Prisma.TransactionClient;
 
-  const activeRequests = await prisma.aidRequest.findMany({
-    where: {
-      userId,
-      status: { in: ["ACCEPTED", "DISBURSED", "LATE"] },
-    },
+/**
+ * Plafond disponible = plafond du client moins le capital encore dû sur toutes
+ * ses demandes engagées. Les demandes EN ATTENTE comptent déjà : sinon un client
+ * pouvait en envoyer plusieurs, chacune sous le plafond, puis les faire accepter.
+ */
+export async function computeAvailableCeiling(db: Db, userId: string): Promise<number> {
+  const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
+
+  const openRequests = await db.aidRequest.findMany({
+    where: { userId, status: { in: ["PENDING", "ACCEPTED", "DISBURSED", "LATE"] } },
     include: { repayments: true },
   });
 
-  const totalUsed = activeRequests.reduce((sum: number, r: typeof activeRequests[number]) => {
-    const repaid = r.repayments.reduce((s: number, rep: typeof r.repayments[number]) => s + rep.amount, 0);
+  const totalUsed = openRequests.reduce((sum, r) => {
+    const repaid = r.repayments.reduce((s, rep) => s + rep.amount, 0);
     return sum + (r.amount - repaid);
   }, 0);
 
   return user.ceiling - totalUsed;
+}
+
+export async function getAvailableCeiling(userId: string): Promise<number> {
+  return computeAvailableCeiling(prisma, userId);
 }
 
 export async function requestAid(
@@ -42,59 +51,96 @@ export async function requestAid(
     throw new Error("Ton compte doit d'abord être validé par un administrateur avant de pouvoir demander une aide.");
   }
 
-  const available = await getAvailableCeiling(userId);
-  if (amount > available) {
-    throw new Error(`Montant demandé (${amount}) dépasse le plafond disponible (${available})`);
-  }
-
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
   const { tierAmount, durationDays } = await computeDurationForAmount(amount);
-  // Le taux ET la durée sont figés à la date de la demande : les modifier
-  // plus tard dans les paramètres (taux global ou grille des paliers)
-  // n'affecte jamais les demandes déjà créées — le client garde exactement
-  // ce qu'il a vu et accepté au moment de sa demande.
+  // Le taux ET la durée sont figés à la date de la demande : les modifier plus
+  // tard dans les paramètres n'affecte jamais une demande déjà créée.
   const feePercent = requester.isPremium ? settings.premiumServiceFeePercent : settings.serviceFeePercent;
   const amountDue = Math.round(amount * (1 + feePercent / 100));
   const dueDate = new Date();
   dueDate.setDate(dueDate.getDate() + durationDays);
 
-  const request = await prisma.aidRequest.create({
-    data: {
-      userId,
-      amount,
-      amountDue,
-      dueDate,
-      durationDays,
-      durationTierAmount: tierAmount,
-      receivingOperator,
-      receivingPhone,
-      receivingName,
-      status: "PENDING",
-    },
-  });
+  // Contrôle du plafond ET création dans une même transaction Serializable :
+  // deux demandes simultanées ne peuvent plus lire le même plafond libre.
+  let request;
+  try {
+    request = await prisma.$transaction(
+      async (tx) => {
+        const available = await computeAvailableCeiling(tx, userId);
+        if (amount > available) {
+          throw new Error(`Montant demandé (${amount}) dépasse le plafond disponible (${available})`);
+        }
+        return tx.aidRequest.create({
+          data: {
+            userId,
+            amount,
+            amountDue,
+            dueDate,
+            durationDays,
+            durationTierAmount: tierAmount,
+            receivingOperator,
+            receivingPhone,
+            receivingName,
+            status: "PENDING",
+          },
+        });
+      },
+      { isolationLevel: "Serializable" }
+    );
+  } catch (err: any) {
+    if (err?.code === "P2034") {
+      throw new Error("Une autre demande est en cours de traitement. Réessaie dans un instant.");
+    }
+    throw err;
+  }
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  await notifyAdmins(
-    "aid_request_created",
-    `${user.name} a demandé une aide de ${amount} FCFA.`,
-    request.id
-  );
+  await notifyAdmins("aid_request_created", `${user.name} a demandé une aide de ${amount} FCFA.`, request.id);
 
   return request;
 }
 
 export async function acceptAidRequest(id: string, adminId: string) {
-  // La durée et la date d'échéance sont déjà figées depuis la création de la
-  // demande (voir requestAid) — accepter ne fait plus que changer le statut.
-  const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id } });
-  if (existing.status !== "PENDING") {
-    throw new Error(`Cette demande a déjà été traitée (statut actuel : ${existing.status})`);
+  // Le plafond est revérifié à l'acceptation : il a pu changer depuis la demande
+  // (points, début ou fin d'AIFI+, réglage admin). Tout se passe dans une
+  // transaction Serializable : une seule acceptation concurrente peut passer.
+  let outcome;
+  try {
+    outcome = await prisma.$transaction(
+      async (tx) => {
+        const existing = await tx.aidRequest.findUniqueOrThrow({ where: { id } });
+        if (existing.status !== "PENDING") {
+          throw new Error(`Cette demande a déjà été traitée (statut actuel : ${existing.status})`);
+        }
+
+        const available = await computeAvailableCeiling(tx, existing.userId);
+        if (available < 0) {
+          throw new Error(
+            `Plafond dépassé pour ce client (${-available} FCFA au-dessus). Refuse la demande ou ajuste le plafond avant d'accepter.`
+          );
+        }
+
+        const locked = await tx.aidRequest.updateMany({
+          where: { id, status: "PENDING" },
+          data: { status: "ACCEPTED" },
+        });
+        if (locked.count === 0) {
+          throw new Error("Cette demande vient d'être traitée par quelqu'un d'autre.");
+        }
+
+        const request = await tx.aidRequest.findUniqueOrThrow({ where: { id } });
+        return { existing, request };
+      },
+      { isolationLevel: "Serializable" }
+    );
+  } catch (err: any) {
+    if (err?.code === "P2034") {
+      throw new Error("Conflit avec une autre opération sur ce client — réessaie dans un instant.");
+    }
+    throw err;
   }
 
-  const request = await prisma.aidRequest.update({
-    where: { id },
-    data: { status: "ACCEPTED" },
-  });
+  const { existing, request } = outcome;
 
   await logAction({
     adminId,

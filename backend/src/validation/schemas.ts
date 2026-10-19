@@ -3,9 +3,28 @@ import { z } from "zod";
 // Un montant en FCFA : entier positif, borné pour éviter une saisie absurde
 // (ex: 15 zéros tapés par erreur) qui casserait un calcul de plafond plus loin.
 const amount = z.coerce.number().int().positive().max(10_000_000);
-const phone = z.string().trim().min(6).max(20);
-const password = z.string().min(6).max(72);
-const optionalImageUrl = z.string().max(500).optional();
+// Numéro normalisé : seuls les chiffres et un éventuel « + » sont conservés
+// (espaces, tirets, points, parenthèses retirés), pour éviter les doublons de compte.
+// Forme unique : « 0 » + 8 chiffres (ex. 077000000), comme dans l'application.
+// Les formes internationales (+241…, 00241…, 241…) sont ramenées à cette forme.
+export function normalizePhone(raw: string): string {
+  let p = raw.replace(/[^\d+]/g, "");
+  if (p.startsWith("00")) p = "+" + p.slice(2);
+  if (p.startsWith("+241")) p = "0" + p.slice(4);
+  else if (/^241\d{8}$/.test(p)) p = "0" + p.slice(3);
+  return p;
+}
+
+const phone = z
+  .string()
+  .trim()
+  .min(6)
+  .max(20)
+  .transform(normalizePhone)
+  .refine((p) => p.length >= 6 && p.length <= 20, { message: "Numéro de téléphone invalide" });
+const password = z.string().min(8).max(72);
+const imageUrlPath = z.string().max(500).regex(/^\/uploads\/[A-Za-z0-9._-]+$/, "Fichier joint invalide");
+const optionalImageUrl = imageUrlPath.optional();
 
 export const registerSchema = z.object({
   name: z.string().trim().min(2).max(100),
@@ -84,7 +103,7 @@ export const rejectDeclarationSchema = z.object({
 });
 
 export const approveWithdrawalSchema = z.object({
-  proofImageUrl: z.string().min(1).max(500), // obligatoire à l'approbation
+  proofImageUrl: imageUrlPath, // obligatoire à l'approbation
 });
 
 export const confirmDeclarationSchema = z.object({
@@ -117,6 +136,17 @@ export const settingsUpdateSchema = z.object({
   repaymentReceivingOperator: z.enum(["AIRTEL_MONEY", "MOOV_MONEY"]).optional(),
   repaymentReceivingPhone: z.string().min(6).max(20).optional(),
   repaymentReceivingName: z.string().min(2).max(100).optional(),
+  communityMessage: z.string().max(1000).optional(),
+  communityShareText: z.string().max(1000).optional(),
+  communityLinks: z
+    .array(
+      z.object({
+        label: z.string().min(1).max(40),
+        url: z.string().max(500).regex(/^https:\/\/\S+$/, "lien https requis"),
+      })
+    )
+    .max(10)
+    .optional(),
 });
 
 export const durationTierSchema = z.object({

@@ -121,7 +121,7 @@ export async function login(phone: string, password: string) {
     throw new Error("Compte suspendu. Contacte un administrateur.");
   }
 
-  const token = signToken({ userId: user.id, role: user.role });
+  const token = signToken({ userId: user.id, role: user.role, tokenVersion: user.tokenVersion });
   return { token, user: { id: user.id, name: user.name, role: user.role, status: user.status } };
 }
 
@@ -131,12 +131,16 @@ export async function changePassword(userId: string, currentPassword: string, ne
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
   if (!valid) throw new Error("Mot de passe actuel incorrect");
 
-  if (!newPassword || newPassword.length < 6) {
-    throw new Error("Le nouveau mot de passe doit contenir au moins 6 caractères");
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Le nouveau mot de passe doit contenir au moins 8 caractères");
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  // Incrémente tokenVersion : tous les tokens existants (y compris celui de l'appareil) sont invalidés.
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash, tokenVersion: { increment: 1 } },
+  });
   return { success: true };
 }
 
@@ -146,10 +150,13 @@ export async function changePassword(userId: string, currentPassword: string, ne
  * communique ensuite hors application).
  */
 export async function adminResetPassword(userId: string, newPassword: string) {
-  if (!newPassword || newPassword.length < 6) {
-    throw new Error("Le nouveau mot de passe doit contenir au moins 6 caractères");
+  if (!newPassword || newPassword.length < 8) {
+    throw new Error("Le nouveau mot de passe doit contenir au moins 8 caractères");
   }
   const passwordHash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash, tokenVersion: { increment: 1 } },
+  });
   return { success: true };
 }

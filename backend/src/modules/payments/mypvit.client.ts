@@ -221,7 +221,13 @@ export async function initiatePayment(params: InitiatePaymentParams, retry = tru
   const data = await res.json().catch(() => null);
 
   if (!res.ok || !data) {
-    throw new Error(`MyPVit a refusé la demande de paiement (${res.status}): ${JSON.stringify(data)}`);
+    // Détail technique dans les logs serveur uniquement, jamais dans l'app.
+    console.error(`[mypvit] initiatePayment refusé (${res.status}) operator=${params.operatorCode}:`, JSON.stringify(data));
+    const code = (data as { error?: string } | null)?.error;
+    if (code === "OPERATOR_NOT_ACTIVE") {
+      throw new Error("Ce moyen de paiement n'est pas encore disponible. Choisis un autre moyen ou réessaie plus tard.");
+    }
+    throw new Error("Le paiement n'a pas pu être lancé. Réessaie dans quelques instants.");
   }
 
   return data as InitiatePaymentResponse;

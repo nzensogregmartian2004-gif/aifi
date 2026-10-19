@@ -37,17 +37,21 @@ router.get("/:filename", requireAuth, async (req, res) => {
     }
   }
 
+  // Aucun contenu ne peut être interprété par le navigateur, même mal nommé
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", "default-src 'none'; sandbox");
   res.sendFile(filePath);
 });
 
 async function canAccessUpload(userId: string, url: string): Promise<boolean> {
-  const [message, repayment, declaration, withdrawal] = await Promise.all([
+  const [owned, message, repayment, declaration, withdrawal] = await Promise.all([
+    prisma.upload.findFirst({ where: { url, ownerId: userId } }),
     prisma.message.findFirst({ where: { imageUrl: url, clientId: userId } }),
     prisma.repayment.findFirst({ where: { proofImageUrl: url, aidRequest: { userId } } }),
     prisma.repaymentDeclaration.findFirst({ where: { proofImageUrl: url, userId } }),
     prisma.withdrawal.findFirst({ where: { proofImageUrl: url, userId } }),
   ]);
-  return !!(message || repayment || declaration || withdrawal);
+  return !!(owned || message || repayment || declaration || withdrawal);
 }
 
 export default router;

@@ -98,6 +98,8 @@ model User {
   createdAt      DateTime   @default(now())
   anonymizedAt   DateTime?
   pushToken      String?
+  // Incrémenté à chaque changement/réinitialisation de mot de passe : invalide les anciens tokens.
+  tokenVersion   Int        @default(0)
 
   aidRequests    AidRequest[]
   walletEntries  WalletEntry[]
@@ -194,6 +196,9 @@ model AppSettings {
   repaymentReceivingOperator String @default("AIRTEL_MONEY") // où le client envoie un remboursement manuel
   repaymentReceivingPhone    String @default("")
   repaymentReceivingName     String @default("")
+  communityMessage   String @default("")
+  communityShareText String @default("")
+  communityLinks     Json   @default("[]")
 }
 
 model DurationTier {
@@ -241,4 +246,15 @@ model CeilingTier {
   id        String @id @default(uuid())
   minPoints Int    @unique
   ceiling   Int
+}
+
+// Fichier téléversé (justificatif, photo) et son propriétaire : un client ne peut
+// joindre à ses messages ou déclarations que des fichiers qu'il a lui-même envoyés.
+model Upload {
+  id        String   @id @default(uuid())
+  url       String   @unique
+  ownerId   String
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
 }

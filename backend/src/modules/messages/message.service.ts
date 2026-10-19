@@ -1,3 +1,4 @@
+import { assertOwnUpload } from "../uploads/upload-ownership";
 import { prisma } from "../../db/client";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
 
@@ -11,6 +12,7 @@ export async function sendClientMessage(clientId: string, text?: string, imageUr
   if (!text && !imageUrl) {
     throw new Error("Le message doit contenir du texte ou une image");
   }
+  await assertOwnUpload(imageUrl, clientId);
   const message = await prisma.message.create({
     data: { clientId, senderId: clientId, senderRole: "CLIENT", text, imageUrl },
   });

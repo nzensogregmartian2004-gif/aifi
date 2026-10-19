@@ -6,6 +6,8 @@ import { prisma } from "../db/client";
 export interface AuthPayload {
   userId: string;
   role: "CLIENT" | "ADMIN";
+  // Absent sur les anciens tokens : traité comme 0.
+  tokenVersion?: number;
 }
 
 declare global {
@@ -31,22 +33,28 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return res.status(401).json({ error: "Token invalide ou expiré" });
   }
 
-  // Le statut du compte peut avoir changé APRÈS l'émission du token (compte
-  // suspendu manuellement par un admin, ou bloqué automatiquement pour retard
-  // de paiement — voir account-block.job.ts). Sans cette vérification, un
-  // token déjà émis restait utilisable jusqu'à 7 jours peu importe le statut
-  // réel du compte : un blocage n'avait donc aucun effet sur une session déjà
-  // ouverte.
+  // Statut ET rôle relus en base à chaque requête : une suspension ou une
+  // rétrogradation prend effet tout de suite, sans attendre l'expiration du token.
+  let user: { status: string; role: string; tokenVersion: number } | null = null;
   try {
-    const user = await prisma.user.findUnique({ where: { id: payload.userId }, select: { status: true } });
-    if (!user || user.status === "SUSPENDED") {
-      return res.status(403).json({ error: "Compte suspendu. Contacte l'administrateur." });
-    }
+    user = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { status: true, role: true, tokenVersion: true },
+    });
   } catch {
     return res.status(503).json({ error: "Service temporairement indisponible" });
   }
 
-  req.auth = payload;
+  if (!user || user.status === "SUSPENDED") {
+    return res.status(403).json({ error: "Compte suspendu. Contacte l'administrateur." });
+  }
+
+  // Mot de passe changé ou réinitialisé depuis l'émission du token : session révoquée.
+  if ((payload.tokenVersion ?? 0) !== user.tokenVersion) {
+    return res.status(401).json({ error: "Session expirée. Reconnecte-toi." });
+  }
+
+  req.auth = { userId: payload.userId, role: user.role as AuthPayload["role"] };
   next();
 }
 

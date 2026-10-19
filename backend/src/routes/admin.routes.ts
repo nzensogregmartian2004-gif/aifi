@@ -16,8 +16,8 @@ import settingsRouter from "./admin.settings.routes";
 import { getAnalytics } from "../modules/analytics/analytics.service";
 import { resetAllTestData } from "../modules/admin/reset.service";
 import { prisma } from "../db/client";
-import { getOperators, checkKyc } from "../modules/payments/mypvit.client";
-import { isMypvitConfigured, OperatorCode } from "../config/env";
+import { getOperators } from "../modules/payments/mypvit.client";
+import { env, isMypvitConfigured, OperatorCode } from "../config/env";
 
 const VALID_OPERATORS: OperatorCode[] = ["AIRTEL_MONEY", "MOOV_MONEY", "VISA_MASTERCARD"];
 function parseOperatorParam(value: unknown): OperatorCode {
@@ -440,18 +440,6 @@ router.get("/payments/mypvit/operators", async (req, res) => {
   res.json({ operator, operators, note: "Liste vide = appel indisponible ou format de réponse inattendu." });
 });
 
-router.get("/payments/mypvit/kyc-test", async (req, res) => {
-  try {
-    const { phone } = req.query as { phone?: string };
-    if (!phone) throw new Error("Paramètre phone requis");
-    const operator = parseOperatorParam(req.query.operator);
-    const result = await checkKyc(phone, operator);
-    res.json({ operator, result, note: "null = format de réponse non reconnu, à vérifier avec le support MyPVit." });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
 router.get("/audit-logs", async (req, res) => {
   try {
     const { entityType, entityId, adminId } = req.query as {
@@ -508,6 +496,9 @@ router.get("/analytics", async (_req, res) => {
 // production — irréversible, protégée par une phrase de confirmation exacte
 // envoyée par le client (en plus de la confirmation déjà faite côté écran).
 router.post("/reset-data", async (req, res) => {
+  if (!env.allowDataReset) {
+    return res.status(403).json({ error: "La réinitialisation des données est désactivée sur ce serveur." });
+  }
   try {
     if (req.body?.confirmation !== "REINITIALISER") {
       return res.status(400).json({ error: "Confirmation manquante ou incorrecte." });

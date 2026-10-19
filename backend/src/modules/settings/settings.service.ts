@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../db/client";
 import { recomputeCeilingForUser } from "../points/points.service";
 
@@ -23,6 +24,10 @@ interface SettingsUpdate {
   repaymentReceivingOperator?: "AIRTEL_MONEY" | "MOOV_MONEY";
   repaymentReceivingPhone?: string;
   repaymentReceivingName?: string;
+  // Section communauté du tableau de bord client
+  communityMessage?: string;
+  communityShareText?: string;
+  communityLinks?: { label: string; url: string }[];
 }
 
 export async function updateSettings(data: SettingsUpdate) {
@@ -41,9 +46,15 @@ export async function updateSettings(data: SettingsUpdate) {
     throw new Error("repaymentReceivingOperator doit être AIRTEL_MONEY ou MOOV_MONEY");
   }
 
+  const { communityLinks, ...rest } = data;
   const updated = await prisma.appSettings.update({
     where: { id: "singleton" },
-    data,
+    data: {
+      ...rest,
+      ...(communityLinks !== undefined
+        ? { communityLinks: communityLinks as unknown as Prisma.InputJsonValue }
+        : {}),
+    },
   });
 
   // Le plafond de chaque client est mis en cache (colonne User.ceiling) pour

@@ -1,43 +1,43 @@
 import { Router } from "express";
 import { handleMypvitCallback } from "../modules/payments/payment.service";
 import { receiveSecretFromWebhook } from "../modules/payments/mypvit.client";
-import { verifyMypvitWebhookIp } from "../middleware/verifyWebhookIp";
+import {
+  verifyMypvitWebhookIp,
+  requireMypvitWebhookAllowlist,
+  isAllowlistedMypvitIp,
+} from "../middleware/verifyWebhookIp";
 
 const router = Router();
 
-// Route publique (pas de requireAuth) : c'est MyPVit qui appelle ce endpoint,
-// pas notre app. Protégée par filtrage IP (voir verifyMypvitWebhookIp) —
-// remplis MYPVIT_WEBHOOK_ALLOWED_IPS avant la mise en prod.
+// Route publique (pas de requireAuth) : c'est MyPVit qui appelle ce endpoint.
+// Le callback ne crédite jamais seul : il déclenche une vérification auprès de
+// MyPVit (voir handleMypvitCallback).
 router.post("/mypvit/callback", verifyMypvitWebhookIp, async (req, res) => {
-  try {
-    const payload = req.body;
-    await handleMypvitCallback(payload);
+  const payload = req.body;
 
-    // Accusé de réception EXACT attendu par MyPVit : écho dynamique de
-    // transactionId et code, jamais une valeur codée en dur.
-    res.status(200).json({
-      transactionId: payload.transactionId,
-      responseCode: payload.code,
-    });
-  } catch (err: any) {
-    // Même en cas d'erreur de notre côté, on évite de laisser MyPVit sans
-    // réponse structurée — mais on log pour investigation.
-    console.error("[mypvit callback] erreur de traitement:", err);
-    res.status(200).json({
-      transactionId: req.body?.transactionId,
-      responseCode: req.body?.code,
-    });
+  if (typeof payload?.merchantReferenceId === "string") {
+    try {
+      await handleMypvitCallback(payload, { fromAllowlistedIp: isAllowlistedMypvitIp(req) });
+    } catch (err: any) {
+      // Erreur de notre côté : on journalise, le job de rattrapage reprendra la transaction
+      console.error("[mypvit callback] erreur de traitement:", err);
+    }
   }
+
+  // Accusé de réception dans tous les cas : écho de transactionId et code.
+  res.status(200).json({
+    transactionId: payload?.transactionId,
+    responseCode: payload?.code,
+  });
 });
 
 /**
  * Réception asynchrone de la clé secrète après un appel à /renew-secret.
  * URL à enregistrer dans le dashboard MyPVit (menu URL), le code obtenu va
  * dans MYPVIT_RECEPTION_URL_CODE. Le format exact du payload varie selon les
- * comptes MyPVit (constaté sur des intégrations similaires) : on essaie
- * plusieurs noms de champ, et le corps brut en dernier recours.
+ * comptes MyPVit : on essaie plusieurs noms de champ, et le corps brut en dernier recours.
  */
-router.post("/mypvit/secret", verifyMypvitWebhookIp, async (req, res) => {
+router.post("/mypvit/secret", requireMypvitWebhookAllowlist, async (req, res) => {
   try {
     const body = req.body;
     const secret =

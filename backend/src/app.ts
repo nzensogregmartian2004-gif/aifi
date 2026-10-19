@@ -9,6 +9,7 @@ import accountRoutes from "./routes/account.routes";
 import uploadsRoutes from "./routes/uploads.routes";
 import uploadsServeRoutes from "./routes/uploads.serve.routes";
 import paymentsRoutes from "./routes/payments.routes";
+import { isAllowlistedMypvitIp } from "./middleware/verifyWebhookIp";
 
 export const app = express();
 
@@ -32,6 +33,8 @@ app.use(
   rateLimit({
     windowMs: 60 * 1000,
     limit: 120, // 120 requêtes / minute / IP, large pour un usage normal
+    // Callbacks MyPVit depuis une IP autorisée : pas de limite, sinon des paiements seraient perdus
+    skip: (req) => req.path.startsWith("/payments/mypvit") && isAllowlistedMypvitIp(req),
     standardHeaders: true,
     legacyHeaders: false,
   })
