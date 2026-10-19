@@ -3,8 +3,9 @@ import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
-const ADMIN_PHONE = process.env.SEED_ADMIN_PHONE || "0000000000";
-const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "admin1234";
+// Pas de valeurs par défaut : le compte admin n'est créé que si les deux variables sont définies.
+const ADMIN_PHONE = process.env.SEED_ADMIN_PHONE?.replace(/[^\d+]/g, "") ?? "";
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? "";
 const ADMIN_NAME = process.env.SEED_ADMIN_NAME || "Administrateur";
 
 const DEFAULT_TIERS = [
@@ -36,11 +37,14 @@ async function main() {
   }
 
   // La grille de durées de remboursement (DurationTier) est déjà initialisée
-  // par sa migration (20260822093000_duration_tiers_grid) — plus besoin de la
-  // seeder ici. L'ancien modèle AllowedDuration n'existe plus dans le schéma.
+  // par sa migration (20260822093000_duration_tiers_grid).
 
   const existingAdmin = await prisma.user.findFirst({ where: { role: "ADMIN" } });
-  if (!existingAdmin) {
+  if (existingAdmin) {
+    console.log("Un compte administrateur existe déjà, aucun nouveau compte créé.");
+  } else if (!ADMIN_PHONE || ADMIN_PASSWORD.length < 8) {
+    console.warn("Aucun administrateur : définis SEED_ADMIN_PHONE et SEED_ADMIN_PASSWORD (8 caractères min) pour le créer.");
+  } else {
     const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
     await prisma.user.create({
       data: {
@@ -52,10 +56,8 @@ async function main() {
         referralCode: "ADMIN0000",
       },
     });
-    console.log(`Compte administrateur créé — téléphone: ${ADMIN_PHONE} / mot de passe: ${ADMIN_PASSWORD}`);
-    console.log("Change ce mot de passe dès que possible (ou définis SEED_ADMIN_PHONE / SEED_ADMIN_PASSWORD avant de seed).");
-  } else {
-    console.log("Un compte administrateur existe déjà, aucun nouveau compte créé.");
+    // Le mot de passe n'est jamais affiché dans les logs.
+    console.log("Compte administrateur créé à partir de SEED_ADMIN_PHONE / SEED_ADMIN_PASSWORD.");
   }
 
   console.log("Seed terminé : AppSettings, CeilingTier initialisés.");

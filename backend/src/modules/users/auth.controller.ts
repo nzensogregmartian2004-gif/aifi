@@ -92,10 +92,24 @@ async function sendWelcomeMessage(clientId: string) {
 }
 
 
+/** Formes possibles d'un numéro gabonais stocké (forme canonique « 0… » + variantes internationales). */
+function phoneCandidates(phone: string): string[] {
+  const set = new Set([phone]);
+  if (phone.startsWith("0")) {
+    const local = phone.slice(1);
+    set.add(`+241${local}`);
+    set.add(`00241${local}`);
+    set.add(`241${local}`);
+  }
+  return [...set];
+}
+
 export async function login(phone: string, password: string) {
   checkLock(phone);
 
-  const user = await prisma.user.findUnique({ where: { phone } });
+  // Tolère les anciens formats encore stockés (+241…, 00241…, 241…) tant que la
+  // migration de normalisation n'a pas touché tous les comptes.
+  const user = await prisma.user.findFirst({ where: { phone: { in: phoneCandidates(phone) } } });
   if (!user) {
     registerFailedAttempt(phone);
     throw new Error("Numéro ou mot de passe incorrect");
