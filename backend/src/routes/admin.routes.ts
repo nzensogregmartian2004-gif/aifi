@@ -3,6 +3,7 @@ import { requireAuth } from "../middleware/auth";
 import { requireAdmin } from "../middleware/requireAdmin";
 import { recordRepayment, confirmRepaymentDeclaration, rejectRepaymentDeclaration } from "../modules/repayments/repayment.service";
 import { addPoints, recomputeCeilingForUser } from "../modules/points/points.service";
+import { getUserRisk } from "../modules/risk/risk.service";
 import { creditWallet } from "../modules/wallet/wallet.service";
 import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal } from "../modules/wallet/withdrawal.service";
 import { getAdminDashboard } from "../modules/dashboard/admin-dashboard.service";
@@ -111,6 +112,172 @@ router.get("/users/:id", async (req, res) => {
     res.json(user);
   } catch (err: any) {
     res.status(404).json({ error: "Utilisateur introuvable" });
+  }
+});
+
+// Bonus de points de confiance décidé par un admin (bon remboursement, fidélité, fêtes…).
+// Le client reçoit une notification avec le message de l'admin et les points ajoutés.
+router.post("/users/:id/bonus", async (req, res) => {
+  try {
+    const { points, message } = req.body as { points?: number; message?: string };
+    const delta = Number(points);
+    const text = (message || "").trim();
+    if (!Number.isInteger(delta) || delta < 1 || delta > 100) {
+      return res.status(400).json({ error: "Le bonus doit être un nombre entier entre 1 et 100 points." });
+    }
+    if (text.length < 3 || text.length > 280) {
+      return res.status(400).json({ error: "Écris un message de 3 à 280 caractères pour le client." });
+    }
+    const userId = req.params.id as string;
+    const result = await addPoints(userId, delta, "bonus_admin");
+
+    await logAction({
+      adminId: req.auth!.userId,
+      action: "points_bonus",
+      entityType: "User",
+      entityId: userId,
+      after: { bonus: delta, points: result.points },
+      note: text,
+    });
+
+    await notifyUser(userId, "trust_bonus", `${text} Tu reçois ${delta} points de niveau de confiance.`);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Normalisation des numéros pour retrouver un client saisi sous différentes formes.
+function canonicalPhone(raw: string): string {
+  let p = raw.replace(/[^\d+]/g, "");
+  if (p.startsWith("00")) p = "+" + p.slice(2);
+  if (p.startsWith("+241")) p = "0" + p.slice(4);
+  else if (/^241\d{8}$/.test(p)) p = "0" + p.slice(3);
+  return p;
+}
+
+function phoneVariants(raw: string): string[] {
+  const canonical = canonicalPhone(raw);
+  const set = new Set([raw.replace(/[^\d+]/g, ""), canonical]);
+  if (canonical.startsWith("0")) {
+    const local = canonical.slice(1);
+    set.add(`+241${local}`);
+    set.add(`00241${local}`);
+    set.add(`241${local}`);
+  }
+  return [...set];
+}
+
+// Cadeaux : points de confiance ou crédit portefeuille, à un client ou à tous les clients actifs.
+router.post("/gifts", async (req, res) => {
+  try {
+    const { target, phone, type, amount, message } = req.body as {
+      target?: string;
+      phone?: string;
+      type?: string;
+      amount?: number;
+      message?: string;
+    };
+    const text = (message || "").trim();
+    const value = Number(amount);
+
+    if (text.length < 3 || text.length > 280) {
+      return res.status(400).json({ error: "Écris un message de 3 à 280 caractères pour le client." });
+    }
+    if (type === "POINTS" && (!Number.isInteger(value) || value < 1 || value > 100)) {
+      return res.status(400).json({ error: "Les points doivent être un nombre entier entre 1 et 100." });
+    }
+    if (type === "WALLET" && (!Number.isInteger(value) || value < 100 || value > 50000)) {
+      return res.status(400).json({ error: "Le crédit doit être entre 100 et 50 000 FCFA." });
+    }
+    if (type !== "POINTS" && type !== "WALLET") {
+      return res.status(400).json({ error: "Type de cadeau invalide." });
+    }
+
+    let recipientIds: string[];
+    let targetUserId: string | null = null;
+    if (target === "ALL") {
+      const actives = await prisma.user.findMany({
+        where: { role: "CLIENT", status: "ACTIVE" },
+        select: { id: true },
+      });
+      recipientIds = actives.map((u) => u.id);
+    } else if (target === "USER") {
+      const user = await prisma.user.findFirst({
+        where: { role: "CLIENT", phone: { in: phoneVariants(String(phone || "")) } },
+        select: { id: true },
+      });
+      if (!user) {
+        return res.status(400).json({ error: "Aucun client ne correspond à ce numéro." });
+      }
+      recipientIds = [user.id];
+      targetUserId = user.id;
+    } else {
+      return res.status(400).json({ error: "Destinataire invalide." });
+    }
+
+    if (recipientIds.length === 0) {
+      return res.status(400).json({ error: "Aucun client actif à récompenser." });
+    }
+
+    const reward =
+      type === "POINTS"
+        ? `Tu reçois ${value} points de niveau de confiance.`
+        : `${value} FCFA ont été crédités sur ton portefeuille AIFI.`;
+
+    let delivered = 0;
+    for (const id of recipientIds) {
+      try {
+        if (type === "POINTS") await addPoints(id, value, "cadeau_admin");
+        else await creditWallet(id, value, "cadeau_admin");
+        await notifyUser(id, "gift", `${text} ${reward}`);
+        delivered++;
+      } catch (err) {
+        console.error(`[gifts] échec pour le client ${id} :`, err);
+      }
+    }
+
+    const gift = await prisma.gift.create({
+      data: {
+        adminId: req.auth!.userId,
+        target,
+        userId: targetUserId,
+        type,
+        amount: value,
+        message: text,
+        recipients: delivered,
+      },
+    });
+
+    await logAction({
+      adminId: req.auth!.userId,
+      action: "gift_sent",
+      entityType: "Gift",
+      entityId: gift.id,
+      after: { target, type, amount: value, recipients: delivered },
+      note: text,
+    });
+
+    res.json({ recipients: delivered, giftId: gift.id });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/gifts", async (_req, res) => {
+  try {
+    res.json(await prisma.gift.findMany({ orderBy: { createdAt: "desc" }, take: 50 }));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Situation de risque d'un client (paliers de retard, points, date de blocage).
+router.get("/users/:id/risk", async (req, res) => {
+  try {
+    res.json(await getUserRisk(req.params.id as string));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 

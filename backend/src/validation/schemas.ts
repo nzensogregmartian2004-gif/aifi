@@ -153,3 +153,10 @@ export const durationTierSchema = z.object({
   minAmount: z.coerce.number().int().positive(),
   durationDays: z.coerce.number().int().positive().max(365),
 });
+
+export const submitVerificationSchema = z.object({
+  documentType: z.enum(["CNI", "PASSPORT", "RECEPISSE", "CNAMGS", "PERMIS", "OTHER"]),
+  frontUrl: imageUrlPath,
+  backUrl: optionalImageUrl,
+  extraUrls: z.array(imageUrlPath).max(5).default([]),
+});

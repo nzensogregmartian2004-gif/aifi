@@ -9,6 +9,11 @@ const router = Router();
 
 router.use(requireAuth);
 
+// Ping de présence : requireAuth met déjà lastSeenAt à jour, la route répond simplement.
+router.post("/heartbeat", (_req, res) => {
+  res.json({ ok: true });
+});
+
 router.post("/change-password", validateBody(changePasswordSchema), async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;

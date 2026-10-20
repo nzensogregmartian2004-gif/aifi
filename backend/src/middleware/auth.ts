@@ -54,6 +54,15 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return res.status(401).json({ error: "Session expirée. Reconnecte-toi." });
   }
 
+  // Présence : dernière activité, écrite au plus une fois toutes les 2 minutes (sans bloquer la requête).
+  const presenceThreshold = new Date(Date.now() - 2 * 60 * 1000);
+  prisma.user
+    .updateMany({
+      where: { id: payload.userId, OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: presenceThreshold } }] },
+      data: { lastSeenAt: new Date() },
+    })
+    .catch(() => {});
+
   req.auth = { userId: payload.userId, role: user.role as AuthPayload["role"] };
   next();
 }

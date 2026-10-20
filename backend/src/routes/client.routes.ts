@@ -10,6 +10,7 @@ import { startRepaymentPayment, getPaymentStatus, startPremiumSubscriptionPaymen
 import { detectOperator } from "../modules/payments/mypvit.client";
 import { isMypvitConfigured } from "../config/env";
 import { validateBody } from "../middleware/validate";
+import { getMyVerification, submitVerification } from "../modules/verification/verification.service";
 import {
   requestWithdrawalSchema,
   requestAidSchema,
@@ -17,6 +18,7 @@ import {
   payRepaymentSchema,
   sendMessageSchema,
   premiumSubscribeSchema,
+  submitVerificationSchema,
 } from "../validation/schemas";
 
 const router = Router();
@@ -169,6 +171,25 @@ router.post("/messages", validateBody(sendMessageSchema), async (req, res) => {
     const { text, imageUrl } = req.body;
     const message = await sendClientMessage(req.auth!.userId, text, imageUrl);
     res.json(message);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Vérification d'identité (paramètres du client)
+router.get("/verification", async (req, res) => {
+  try {
+    const verification = await getMyVerification(req.auth!.userId);
+    res.json(verification);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put("/verification", validateBody(submitVerificationSchema), async (req, res) => {
+  try {
+    const verification = await submitVerification(req.auth!.userId, req.body);
+    res.json(verification);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
