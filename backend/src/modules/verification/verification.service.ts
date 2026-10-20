@@ -1,3 +1,4 @@
+import { checkVerification } from "../blacklist/blacklist.service";
 import { prisma } from "../../db/client";
 import { assertOwnUpload } from "../uploads/upload-ownership";
 
@@ -24,6 +25,9 @@ export async function submitVerification(
     await assertOwnUpload(url, userId);
   }
 
+  const urls = [input.frontUrl, input.backUrl, ...input.extraUrls].filter((u): u is string => !!u);
+  const riskFlags = await checkVerification(userId, urls);
+
   const data = {
     documentType: input.documentType,
     frontUrl: input.frontUrl,
@@ -32,6 +36,7 @@ export async function submitVerification(
     status: "PENDING",
     reviewNote: null,
     reviewedAt: null,
+    riskFlags,
   };
 
   return prisma.identityVerification.upsert({

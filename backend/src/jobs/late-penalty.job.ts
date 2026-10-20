@@ -40,6 +40,11 @@ export async function applyLatePenalties() {
     const stepsDue = Math.min(Math.floor(daysLate / settings.lateStepDays) + 1, maxSteps);
     if (stepsDue <= request.latePenaltySteps) continue;
 
+    // Premier palier : la série de remboursements à temps repart à zéro.
+    if (request.latePenaltySteps === 0) {
+      await prisma.user.update({ where: { id: request.userId }, data: { onTimeStreak: 0 } });
+    }
+
     for (let step = request.latePenaltySteps + 1; step <= stepsDue; step++) {
       await prisma.aidRequest.update({
         where: { id: request.id },

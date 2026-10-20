@@ -25,7 +25,19 @@ router.post("/", handleUpload, async (req, res) => {
   }
   const url = `/uploads/${req.file.filename}`;
   try {
-    await prisma.upload.create({ data: { url, ownerId: req.auth!.userId } });
+    // Empreinte SHA-256 du fichier : sert à repérer une pièce déjà vue (liste noire, doublons).
+    let sha256: string | null = null;
+    try {
+      const nodeCrypto = require("crypto");
+      const nodeFs = require("fs");
+      const nodePath = require("path");
+      const dir = process.env.UPLOAD_DIR?.trim() || nodePath.join(process.cwd(), "uploads");
+      const bytes = nodeFs.readFileSync(nodePath.join(dir, nodePath.basename(url)));
+      sha256 = nodeCrypto.createHash("sha256").update(bytes).digest("hex");
+    } catch {
+      sha256 = null;
+    }
+    await prisma.upload.create({ data: { url, ownerId: req.auth!.userId, sha256 } });
     res.json({ url });
   } catch (err: any) {
     console.error("[uploads] enregistrement du fichier impossible:", err);

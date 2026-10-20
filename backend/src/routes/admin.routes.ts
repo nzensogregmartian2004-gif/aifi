@@ -3,7 +3,8 @@ import { requireAuth } from "../middleware/auth";
 import { requireAdmin } from "../middleware/requireAdmin";
 import { recordRepayment, confirmRepaymentDeclaration, rejectRepaymentDeclaration } from "../modules/repayments/repayment.service";
 import { addPoints, recomputeCeilingForUser } from "../modules/points/points.service";
-import { getUserRisk } from "../modules/risk/risk.service";
+import { getUserRisk, getRiskOverview } from "../modules/risk/risk.service";
+import { listEntries, addManualEntry, removeEntry } from "../modules/blacklist/blacklist.service";
 import { creditWallet } from "../modules/wallet/wallet.service";
 import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal } from "../modules/wallet/withdrawal.service";
 import { getAdminDashboard } from "../modules/dashboard/admin-dashboard.service";
@@ -267,6 +268,69 @@ router.post("/gifts", async (req, res) => {
 router.get("/gifts", async (_req, res) => {
   try {
     res.json(await prisma.gift.findMany({ orderBy: { createdAt: "desc" }, take: 50 }));
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Vue globale du risque (répartition, tranches de retard, plus gros dossiers).
+router.get("/risk-overview", async (_req, res) => {
+  try {
+    res.json(await getRiskOverview());
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Liste noire : consultation, ajout manuel, retrait (journalisé).
+router.get("/blacklist", async (_req, res) => {
+  try {
+    res.json(await listEntries());
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/blacklist", async (req, res) => {
+  try {
+    const { phone, reason } = req.body as { phone?: string; reason?: string };
+    const text = (reason || "").trim();
+    if (!phone || phone.replace(/\D/g, "").length < 6) {
+      return res.status(400).json({ error: "Saisis un numéro de téléphone valide." });
+    }
+    if (text.length < 3) {
+      return res.status(400).json({ error: "Indique le motif de l'ajout." });
+    }
+    const entry = await addManualEntry(phone, text);
+    await logAction({
+      adminId: req.auth!.userId,
+      action: "blacklist_add",
+      entityType: "BlacklistEntry",
+      entityId: entry.id,
+      after: { phone: entry.phone },
+      note: text,
+    });
+    res.json(entry);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/blacklist/:id/remove", async (req, res) => {
+  try {
+    const text = ((req.body as { reason?: string }).reason || "").trim();
+    if (text.length < 3) {
+      return res.status(400).json({ error: "Indique le motif du retrait." });
+    }
+    const entry = await removeEntry(req.params.id as string, text);
+    await logAction({
+      adminId: req.auth!.userId,
+      action: "blacklist_remove",
+      entityType: "BlacklistEntry",
+      entityId: entry.id,
+      note: text,
+    });
+    res.json(entry);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

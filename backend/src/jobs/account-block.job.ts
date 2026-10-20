@@ -1,3 +1,4 @@
+import { blacklistUser } from "../modules/blacklist/blacklist.service";
 import { prisma } from "../db/client";
 import { suspendUser } from "../modules/users/admin-user.service";
 import { addPoints } from "../modules/points/points.service";
@@ -53,6 +54,7 @@ export async function blockOverdueAccounts() {
       systemAdmin.id,
       `Compte bloqué automatiquement : remboursement en retard depuis ${settings.lateBlockDays} jours. Contacte l'administrateur pour régulariser et débloquer ton compte.`
     );
+    await blacklistUser(userId, `Blocage automatique : retard de ${settings.lateBlockDays} jours`, "AUTO_BLOCK");
     blocked++;
   }
 

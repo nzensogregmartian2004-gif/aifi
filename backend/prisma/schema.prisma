@@ -100,6 +100,7 @@ model User {
   pushToken      String?
   // Incrémenté à chaque changement/réinitialisation de mot de passe : invalide les anciens tokens.
   tokenVersion   Int        @default(0)
+  onTimeStreak Int @default(0)
   lastSeenAt   DateTime?
   identityVerification IdentityVerification?
 
@@ -189,6 +190,8 @@ model AppSettings {
   minWithdrawal      Int    @default(1000)
   minRepaymentAmount Int    @default(500)
   latePenaltyPoints  Int    @default(10)
+  streakLength       Int @default(3)
+  streakBonusPoints  Int @default(10)
   reminderDaysBefore Int    @default(2)
   serviceFeePercent  Int    @default(33)
   premiumServiceFeePercent  Int @default(25)
@@ -259,9 +262,11 @@ model Upload {
   id        String   @id @default(uuid())
   url       String   @unique
   ownerId   String
+  sha256    String?
   createdAt DateTime @default(now())
 
   @@index([ownerId])
+  @@index([sha256])
 }
 
 model IdentityVerification {
@@ -274,6 +279,7 @@ model IdentityVerification {
   extraUrls    String[]  @default([])
   status       String    @default("PENDING")
   reviewNote   String?
+  riskFlags    String[]  @default([])
   reviewedAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
@@ -289,4 +295,19 @@ model Gift {
   message    String
   recipients Int      @default(0)
   createdAt  DateTime @default(now())
+}
+
+model BlacklistEntry {
+  id             String    @id @default(uuid())
+  phone          String?
+  nameKey        String?
+  documentHashes String[]  @default([])
+  reason         String
+  source         String
+  userId         String?
+  createdAt      DateTime  @default(now())
+  removedAt      DateTime?
+  removedReason  String?
+
+  @@index([phone])
 }

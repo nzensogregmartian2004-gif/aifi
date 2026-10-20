@@ -72,3 +72,78 @@ export async function getUserRisk(userId: string) {
     latePenaltyPoints: settings.latePenaltyPoints,
   };
 }
+
+/** Vue globale du risque : répartition par niveau, tranches de retard, plus gros dossiers en retard. */
+export async function getRiskOverview() {
+  const now = Date.now();
+  const [settings, activeClients, open] = await Promise.all([
+    prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } }),
+    prisma.user.count({ where: { role: "CLIENT", status: "ACTIVE" } }),
+    prisma.aidRequest.findMany({
+      where: { status: { in: [...OPEN_STATUSES] }, dueDate: { not: null } },
+      select: {
+        userId: true,
+        amount: true,
+        dueDate: true,
+        latePenaltySteps: true,
+        user: { select: { name: true, isPremium: true, status: true } },
+      },
+    }),
+  ]);
+
+  const buckets: Record<string, number> = { "1 à 3 j": 0, "4 à 9 j": 0, "10 à 15 j": 0, "Plus de 15 j": 0 };
+  const perUser = new Map<
+    string,
+    { name: string; blocked: boolean; steps: number; overdueAmount: number; daysLate: number; count: number }
+  >();
+
+  for (const r of open) {
+    const grace = r.user.isPremium ? settings.premiumGraceDays : 0;
+    const due = r.dueDate!.getTime() + grace * DAY_MS;
+    const daysLate = Math.floor((now - due) / DAY_MS);
+    if (daysLate < 0) continue;
+
+    const key =
+      daysLate <= 3 ? "1 à 3 j" : daysLate <= 9 ? "4 à 9 j" : daysLate <= 15 ? "10 à 15 j" : "Plus de 15 j";
+    buckets[key] += r.amount;
+
+    const current = perUser.get(r.userId) || {
+      name: r.user.name,
+      blocked: r.user.status === "SUSPENDED",
+      steps: 0,
+      overdueAmount: 0,
+      daysLate: 0,
+      count: 0,
+    };
+    current.steps = Math.max(current.steps, r.latePenaltySteps);
+    current.overdueAmount += r.amount;
+    current.daysLate = Math.max(current.daysLate, daysLate);
+    current.count += 1;
+    perUser.set(r.userId, current);
+  }
+
+  const levelCounts: Record<string, number> = { Aucun: 0 };
+  for (const label of [...RISK_LEVELS.slice(1), "Bloqué"]) levelCounts[label] = 0;
+
+  const topClients = [...perUser.entries()]
+    .map(([userId, u]) => {
+      const level = u.blocked ? "Bloqué" : RISK_LEVELS[Math.min(u.steps, RISK_LEVELS.length - 1)];
+      levelCounts[level] = (levelCounts[level] || 0) + 1;
+      return { userId, name: u.name, level, overdueAmount: u.overdueAmount, daysLate: u.daysLate, count: u.count };
+    })
+    .sort((a, b) => b.overdueAmount - a.overdueAmount)
+    .slice(0, 20);
+
+  levelCounts.Aucun = Math.max(0, activeClients - perUser.size);
+
+  return {
+    activeClients,
+    overdueClients: perUser.size,
+    totalOverdueAmount: Object.values(buckets).reduce((s, v) => s + v, 0),
+    buckets: Object.entries(buckets).map(([label, amount]) => ({ label, amount })),
+    levels: Object.entries(levelCounts).map(([label, count]) => ({ label, count })),
+    topClients,
+    lateStepDays: settings.lateStepDays,
+    lateBlockDays: settings.lateBlockDays,
+  };
+}

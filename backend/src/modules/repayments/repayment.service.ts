@@ -70,6 +70,25 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
 
       if (wasOnTime) {
         await addPoints(aidRequest.userId, 10, "remboursement_a_temps");
+
+        // Série : un bonus tous les N remboursements à temps d'affilée (paramètres admin).
+        const settings = await tx.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+        const { onTimeStreak } = await tx.user.update({
+          where: { id: aidRequest.userId },
+          data: { onTimeStreak: { increment: 1 } },
+          select: { onTimeStreak: true },
+        });
+        if (settings.streakLength > 0 && onTimeStreak % settings.streakLength === 0) {
+          await addPoints(aidRequest.userId, settings.streakBonusPoints, "serie_remboursements");
+          await notifyUser(
+            aidRequest.userId,
+            "streak_bonus",
+            `Bravo : ${settings.streakLength} remboursements à temps d'affilée. Tu reçois ${settings.streakBonusPoints} points de niveau de confiance.`
+          );
+        }
+      } else {
+        // Un retard casse la série.
+        await tx.user.update({ where: { id: aidRequest.userId }, data: { onTimeStreak: 0 } });
       }
     }
 
