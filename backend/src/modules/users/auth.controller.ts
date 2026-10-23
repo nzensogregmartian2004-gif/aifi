@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { isPhoneBlacklisted } from "../blacklist/blacklist.service";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
@@ -9,49 +10,75 @@ function generateReferralCode(): string {
   return crypto.randomBytes(4).toString("hex").toUpperCase(); // ex: "A1B2C3D4"
 }
 
-// Verrouillage par numéro de téléphone : protège même contre une attaque
-// distribuée sur plusieurs IP (que le rate-limit par IP ne couvre pas).
-// En mémoire — suffisant pour un cercle privé sur un seul serveur ; à passer
-// sur Redis si un jour plusieurs instances tournent en parallèle.
+/** Erreur métier avec un code stable : l'app traduit le code, le message sert de repli. */
+export class AuthError extends Error {
+  code: string;
+  params?: Record<string, unknown>;
+  constructor(code: string, message: string, params?: Record<string, unknown>) {
+    super(message);
+    this.name = "AuthError";
+    this.code = code;
+    this.params = params;
+  }
+}
+
+// Verrouillage par numéro de téléphone : protège même contre une attaque distribuée
+// sur plusieurs IP. Stocké en base : un redémarrage du serveur ne remet pas à zéro.
 const MAX_ATTEMPTS = 5;
 const LOCK_WINDOW_MS = 15 * 60 * 1000;
-const attemptsByPhone = new Map<string, { count: number; firstAttemptAt: number; lockedUntil?: number }>();
 
-function checkLock(phone: string) {
-  const entry = attemptsByPhone.get(phone);
-  if (entry?.lockedUntil && entry.lockedUntil > Date.now()) {
-    const minutesLeft = Math.ceil((entry.lockedUntil - Date.now()) / 60000);
-    throw new Error(`Trop de tentatives échouées. Réessaie dans ${minutesLeft} min.`);
+async function checkLock(phone: string) {
+  const entry = await prisma.loginAttempt.findUnique({ where: { phone } });
+  if (entry?.lockedUntil && entry.lockedUntil.getTime() > Date.now()) {
+    const minutes = Math.ceil((entry.lockedUntil.getTime() - Date.now()) / 60000);
+    throw new AuthError("LOCKED", `Trop de tentatives échouées. Réessaie dans ${minutes} min.`, { minutes });
   }
 }
 
-function registerFailedAttempt(phone: string) {
-  const now = Date.now();
-  const entry = attemptsByPhone.get(phone);
-  if (!entry || now - entry.firstAttemptAt > LOCK_WINDOW_MS) {
-    attemptsByPhone.set(phone, { count: 1, firstAttemptAt: now });
+async function registerFailedAttempt(phone: string) {
+  const now = new Date();
+  const entry = await prisma.loginAttempt.findUnique({ where: { phone } });
+
+  if (!entry || now.getTime() - entry.firstAttemptAt.getTime() > LOCK_WINDOW_MS) {
+    await prisma.loginAttempt.upsert({
+      where: { phone },
+      create: { phone, count: 1, firstAttemptAt: now, lockedUntil: null },
+      update: { count: 1, firstAttemptAt: now, lockedUntil: null },
+    });
     return;
   }
-  entry.count += 1;
-  if (entry.count >= MAX_ATTEMPTS) {
-    entry.lockedUntil = now + LOCK_WINDOW_MS;
-  }
+
+  const count = entry.count + 1;
+  await prisma.loginAttempt.update({
+    where: { phone },
+    data: {
+      count,
+      lockedUntil: count >= MAX_ATTEMPTS ? new Date(now.getTime() + LOCK_WINDOW_MS) : entry.lockedUntil,
+    },
+  });
 }
 
-function clearAttempts(phone: string) {
-  attemptsByPhone.delete(phone);
+async function clearAttempts(phone: string) {
+  await prisma.loginAttempt.deleteMany({ where: { phone } });
+}
+
+/** Supprime les compteurs de plus de 24 h (appelé par le planificateur). */
+export async function purgeOldLoginAttempts(): Promise<number> {
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const result = await prisma.loginAttempt.deleteMany({ where: { firstAttemptAt: { lt: cutoff } } });
+  return result.count;
 }
 
 export async function register(name: string, phone: string, password: string, referralCode?: string) {
   if (await isPhoneBlacklisted(phone)) {
-    throw new Error("Inscription impossible avec ce numéro. Contacte le support.");
+    throw new AuthError("PHONE_BLACKLISTED", "Inscription impossible avec ce numéro. Contacte le support.");
   }
   const passwordHash = await bcrypt.hash(password, 10);
 
   let referredById: string | undefined;
   if (referralCode) {
     const sponsor = await prisma.user.findUnique({ where: { referralCode } });
-    if (!sponsor) throw new Error("Code de parrainage invalide");
+    if (!sponsor) throw new AuthError("INVALID_REFERRAL", "Code de parrainage invalide");
     referredById = sponsor.id;
   }
 
@@ -109,48 +136,51 @@ function phoneCandidates(phone: string): string[] {
 }
 
 export async function login(phone: string, password: string) {
-  checkLock(phone);
+  await checkLock(phone);
 
   // Tolère les anciens formats encore stockés (+241…, 00241…, 241…) tant que la
   // migration de normalisation n'a pas touché tous les comptes.
   const user = await prisma.user.findFirst({ where: { phone: { in: phoneCandidates(phone) } } });
   if (!user) {
-    registerFailedAttempt(phone);
-    throw new Error("Numéro ou mot de passe incorrect");
+    await registerFailedAttempt(phone);
+    throw new AuthError("INVALID_CREDENTIALS", "Numéro ou mot de passe incorrect");
   }
 
   if (user.anonymizedAt) {
-    registerFailedAttempt(phone);
-    throw new Error("Numéro ou mot de passe incorrect");
+    await registerFailedAttempt(phone);
+    throw new AuthError("INVALID_CREDENTIALS", "Numéro ou mot de passe incorrect");
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
-    registerFailedAttempt(phone);
-    throw new Error("Numéro ou mot de passe incorrect");
+    await registerFailedAttempt(phone);
+    throw new AuthError("INVALID_CREDENTIALS", "Numéro ou mot de passe incorrect");
   }
 
-  clearAttempts(phone);
+  await clearAttempts(phone);
 
   // Un compte PENDING peut désormais se connecter (accès restreint géré côté
   // client + côté demande d'aide), pour que le client voie tout de suite son
   // tableau de bord après inscription. Seul un compte SUSPENDED reste bloqué.
   if (user.status === "SUSPENDED") {
-    throw new Error("Compte suspendu. Contacte un administrateur.");
+    throw new AuthError("ACCOUNT_SUSPENDED", "Compte suspendu. Contacte un administrateur.");
   }
 
   const token = signToken({ userId: user.id, role: user.role, tokenVersion: user.tokenVersion });
-  return { token, user: { id: user.id, name: user.name, role: user.role, status: user.status } };
+  return {
+    token,
+    user: { id: user.id, name: user.name, role: user.role, status: user.status, isSuperAdmin: user.isSuperAdmin },
+  };
 }
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
 
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
-  if (!valid) throw new Error("Mot de passe actuel incorrect");
+  if (!valid) throw new AuthError("WRONG_CURRENT_PASSWORD", "Mot de passe actuel incorrect");
 
   if (!newPassword || newPassword.length < 8) {
-    throw new Error("Le nouveau mot de passe doit contenir au moins 8 caractères");
+    throw new AppError("PASSWORD_TOO_SHORT", "Le nouveau mot de passe doit contenir au moins 8 caractères");
   }
 
   const passwordHash = await bcrypt.hash(newPassword, 10);
@@ -169,7 +199,7 @@ export async function changePassword(userId: string, currentPassword: string, ne
  */
 export async function adminResetPassword(userId: string, newPassword: string) {
   if (!newPassword || newPassword.length < 8) {
-    throw new Error("Le nouveau mot de passe doit contenir au moins 8 caractères");
+    throw new AppError("PASSWORD_TOO_SHORT", "Le nouveau mot de passe doit contenir au moins 8 caractères");
   }
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.user.update({

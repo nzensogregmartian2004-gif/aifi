@@ -1,3 +1,5 @@
+import { AppError } from "../../errors";
+import { availableCeiling } from "../finance/rules";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../db/client";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
@@ -20,12 +22,13 @@ export async function computeAvailableCeiling(db: Db, userId: string): Promise<n
     include: { repayments: true },
   });
 
-  const totalUsed = openRequests.reduce((sum, r) => {
-    const repaid = r.repayments.reduce((s, rep) => s + rep.amount, 0);
-    return sum + (r.amount - repaid);
-  }, 0);
-
-  return user.ceiling - totalUsed;
+  return availableCeiling(
+    user.ceiling,
+    openRequests.map((r) => ({
+      amount: r.amount,
+      repaid: r.repayments.reduce((s, rep) => s + rep.amount, 0),
+    }))
+  );
 }
 
 export async function getAvailableCeiling(userId: string): Promise<number> {
@@ -40,15 +43,15 @@ export async function requestAid(
   receivingName: string
 ) {
   if (!amount || amount <= 0) {
-    throw new Error("Le montant demandé doit être positif");
+    throw new AppError("AMOUNT_NOT_POSITIVE", "Le montant demandé doit être positif");
   }
   if (!receivingOperator || !receivingPhone || !receivingName) {
-    throw new Error("L'opérateur, le numéro et le nom du compte de réception sont obligatoires.");
+    throw new AppError("RECEIVING_INFO_REQUIRED", "L'opérateur, le numéro et le nom du compte de réception sont obligatoires.");
   }
 
   const requester = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   if (requester.status !== "ACTIVE") {
-    throw new Error("Ton compte doit d'abord être validé par un administrateur avant de pouvoir demander une aide.");
+    throw new AppError("ACCOUNT_NOT_ACTIVE", "Ton compte doit d'abord être validé par un administrateur avant de pouvoir demander une aide.");
   }
 
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
@@ -68,7 +71,7 @@ export async function requestAid(
       async (tx) => {
         const available = await computeAvailableCeiling(tx, userId);
         if (amount > available) {
-          throw new Error(`Montant demandé (${amount}) dépasse le plafond disponible (${available})`);
+          throw new AppError("CEILING_EXCEEDED", `Montant demandé (${amount}) dépasse le plafond disponible (${available})`, { amount, available });
         }
         return tx.aidRequest.create({
           data: {
@@ -89,13 +92,13 @@ export async function requestAid(
     );
   } catch (err: any) {
     if (err?.code === "P2034") {
-      throw new Error("Une autre demande est en cours de traitement. Réessaie dans un instant.");
+      throw new AppError("CONCURRENT_OPERATION", "Une autre demande est en cours de traitement. Réessaie dans un instant.");
     }
     throw err;
   }
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  await notifyAdmins("aid_request_created", `${user.name} a demandé une aide de ${amount} FCFA.`, request.id);
+  await notifyAdmins("admin_aid_request_created", { name: user.name, amount }, request.id);
 
   return request;
 }
@@ -110,13 +113,15 @@ export async function acceptAidRequest(id: string, adminId: string) {
       async (tx) => {
         const existing = await tx.aidRequest.findUniqueOrThrow({ where: { id } });
         if (existing.status !== "PENDING") {
-          throw new Error(`Cette demande a déjà été traitée (statut actuel : ${existing.status})`);
+          throw new AppError("ALREADY_PROCESSED", `Cette demande a déjà été traitée (statut actuel : ${existing.status})`);
         }
 
         const available = await computeAvailableCeiling(tx, existing.userId);
         if (available < 0) {
-          throw new Error(
-            `Plafond dépassé pour ce client (${-available} FCFA au-dessus). Refuse la demande ou ajuste le plafond avant d'accepter.`
+          throw new AppError(
+            "CEILING_OVER",
+            `Plafond dépassé pour ce client (${-available} FCFA au-dessus). Refuse la demande ou ajuste le plafond avant d'accepter.`,
+            { excess: -available }
           );
         }
 
@@ -125,7 +130,7 @@ export async function acceptAidRequest(id: string, adminId: string) {
           data: { status: "ACCEPTED" },
         });
         if (locked.count === 0) {
-          throw new Error("Cette demande vient d'être traitée par quelqu'un d'autre.");
+          throw new AppError("ALREADY_TAKEN", "Cette demande vient d'être traitée par quelqu'un d'autre.");
         }
 
         const request = await tx.aidRequest.findUniqueOrThrow({ where: { id } });
@@ -135,7 +140,7 @@ export async function acceptAidRequest(id: string, adminId: string) {
     );
   } catch (err: any) {
     if (err?.code === "P2034") {
-      throw new Error("Conflit avec une autre opération sur ce client — réessaie dans un instant.");
+      throw new AppError("CONCURRENT_OPERATION", "Conflit avec une autre opération sur ce client — réessaie dans un instant.");
     }
     throw err;
   }
@@ -154,7 +159,7 @@ export async function acceptAidRequest(id: string, adminId: string) {
   await notifyUser(
     request.userId,
     "aid_request_accepted",
-    `Votre demande de ${request.amount} FCFA a été acceptée. Remboursement attendu avant le ${request.dueDate?.toLocaleDateString("fr-FR")}.`,
+    { amount: request.amount, dueDate: request.dueDate ? request.dueDate.toISOString() : "" },
     request.id
   );
 
@@ -164,7 +169,7 @@ export async function acceptAidRequest(id: string, adminId: string) {
 export async function rejectAidRequest(id: string, adminId: string) {
   const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id } });
   if (existing.status !== "PENDING") {
-    throw new Error(`Cette demande a déjà été traitée (statut actuel : ${existing.status})`);
+    throw new AppError("ALREADY_PROCESSED", `Cette demande a déjà été traitée (statut actuel : ${existing.status})`);
   }
 
   const request = await prisma.aidRequest.update({ where: { id }, data: { status: "REJECTED" } });
@@ -181,7 +186,7 @@ export async function rejectAidRequest(id: string, adminId: string) {
   await notifyUser(
     request.userId,
     "aid_request_rejected",
-    `Votre demande de ${request.amount} FCFA a été refusée.`,
+    { amount: request.amount },
     request.id
   );
 
@@ -191,7 +196,7 @@ export async function rejectAidRequest(id: string, adminId: string) {
 export async function disburseAidRequest(id: string, adminId: string, note?: string) {
   const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id } });
   if (existing.status !== "ACCEPTED") {
-    throw new Error(`Impossible d'envoyer les fonds : statut actuel "${existing.status}" (doit être ACCEPTED)`);
+    throw new AppError("DISBURSE_NOT_ACCEPTED", `Impossible d'envoyer les fonds : statut actuel "${existing.status}" (doit être ACCEPTED)`);
   }
 
   // Même verrou atomique que la voie MyPVit (§ci-dessous) : évite deux
@@ -202,7 +207,7 @@ export async function disburseAidRequest(id: string, adminId: string, note?: str
     data: { status: "DISBURSED" },
   });
   if (locked.count === 0) {
-    throw new Error("Cette demande a déjà été traitée par quelqu'un d'autre.");
+    throw new AppError("ALREADY_TAKEN", "Cette demande a déjà été traitée par quelqu'un d'autre.");
   }
 
   const request = await prisma.aidRequest.findUniqueOrThrow({ where: { id } });
@@ -220,7 +225,7 @@ export async function disburseAidRequest(id: string, adminId: string, note?: str
   await notifyUser(
     request.userId,
     "aid_request_disbursed",
-    `Les fonds de votre demande de ${request.amount} FCFA ont été envoyés.`,
+    { amount: request.amount },
     request.id
   );
 
@@ -238,10 +243,10 @@ export async function disburseAidRequest(id: string, adminId: string, note?: str
 export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
   const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id }, include: { user: true } });
   if (existing.status !== "ACCEPTED") {
-    throw new Error(`Impossible d'envoyer les fonds : statut actuel "${existing.status}" (doit être ACCEPTED)`);
+    throw new AppError("DISBURSE_NOT_ACCEPTED", `Impossible d'envoyer les fonds : statut actuel "${existing.status}" (doit être ACCEPTED)`);
   }
   if (!existing.receivingOperator || !existing.receivingPhone) {
-    throw new Error("Cette demande n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
+    throw new AppError("NO_RECEIVING_INFO", "Cette demande n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
   }
 
   // Verrou atomique : ne fait passer ACCEPTED -> DISBURSING que pour UN seul
@@ -253,7 +258,7 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
     data: { status: "DISBURSING" },
   });
   if (locked.count === 0) {
-    throw new Error("Ce décaissement est déjà en cours ou a déjà été traité par quelqu'un d'autre.");
+    throw new AppError("DISBURSE_IN_PROGRESS", "Ce décaissement est déjà en cours ou a déjà été traité par quelqu'un d'autre.");
   }
 
   const reference = generateDisbursementReference();
@@ -287,7 +292,7 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
     // réessayer — sinon la demande resterait bloquée en DISBURSING pour
     // toujours après un simple échec réseau.
     await prisma.aidRequest.update({ where: { id }, data: { status: "ACCEPTED" } });
-    throw new Error(`Le décaissement automatique a échoué : ${err.message}`);
+    throw new AppError("PAYOUT_FAILED", `Le décaissement automatique a échoué : ${err.message}`);
   }
 
   const success = result.status === "SUCCESS";
@@ -300,7 +305,7 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
     // Idem : refus net de l'opérateur, on relâche le verrou pour permettre
     // une nouvelle tentative (ou un passage en envoi manuel).
     await prisma.aidRequest.update({ where: { id }, data: { status: "ACCEPTED" } });
-    throw new Error(result.message || "Le décaissement a été refusé par l'opérateur.");
+    throw new AppError("PAYOUT_FAILED", result.message || "Le décaissement a été refusé par l'opérateur.");
   }
 
   const request = await prisma.aidRequest.update({ where: { id }, data: { status: "DISBURSED" } });
@@ -316,8 +321,8 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
 
   await notifyUser(
     request.userId,
-    "aid_request_disbursed",
-    `Les fonds de votre demande de ${request.amount} FCFA ont été envoyés automatiquement sur ton compte ${existing.receivingOperator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}.`,
+    "aid_request_disbursed_auto",
+    { amount: request.amount, operator: existing.receivingOperator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money" },
     request.id
   );
 

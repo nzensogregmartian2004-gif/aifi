@@ -1,3 +1,6 @@
+import { errorBody } from "../errors";
+import { AppError } from "../errors";
+import { requireSuperAdmin } from "../middleware/requireSuperAdmin";
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { requireAdmin } from "../middleware/requireAdmin";
@@ -53,7 +56,7 @@ router.get("/admins", async (_req, res) => {
   res.json(admins);
 });
 
-router.post("/admins", validateBody(adminCreateUserSchema), async (req, res) => {
+router.post("/admins", requireSuperAdmin, validateBody(adminCreateUserSchema), async (req, res) => {
   try {
     const { name, phone, password } = req.body;
     const user = await register(name, phone, password);
@@ -63,7 +66,7 @@ router.post("/admins", validateBody(adminCreateUserSchema), async (req, res) => 
     });
     res.json({ id: admin.id, name: admin.name, phone: admin.phone });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -93,7 +96,7 @@ router.get("/users", async (req, res) => {
     });
     res.json(users);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -141,10 +144,10 @@ router.post("/users/:id/bonus", async (req, res) => {
       note: text,
     });
 
-    await notifyUser(userId, "trust_bonus", `${text} Tu reçois ${delta} points de niveau de confiance.`);
+    await notifyUser(userId, "trust_bonus", { text, delta });
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -231,7 +234,7 @@ router.post("/gifts", async (req, res) => {
       try {
         if (type === "POINTS") await addPoints(id, value, "cadeau_admin");
         else await creditWallet(id, value, "cadeau_admin");
-        await notifyUser(id, "gift", `${text} ${reward}`);
+        await notifyUser(id, "gift", { text, reward });
         delivered++;
       } catch (err) {
         console.error(`[gifts] échec pour le client ${id} :`, err);
@@ -261,7 +264,7 @@ router.post("/gifts", async (req, res) => {
 
     res.json({ recipients: delivered, giftId: gift.id });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -269,7 +272,7 @@ router.get("/gifts", async (_req, res) => {
   try {
     res.json(await prisma.gift.findMany({ orderBy: { createdAt: "desc" }, take: 50 }));
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -278,7 +281,7 @@ router.get("/risk-overview", async (_req, res) => {
   try {
     res.json(await getRiskOverview());
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -287,7 +290,7 @@ router.get("/blacklist", async (_req, res) => {
   try {
     res.json(await listEntries());
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -312,7 +315,7 @@ router.post("/blacklist", async (req, res) => {
     });
     res.json(entry);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -332,7 +335,7 @@ router.post("/blacklist/:id/remove", async (req, res) => {
     });
     res.json(entry);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -341,22 +344,25 @@ router.get("/users/:id/risk", async (req, res) => {
   try {
     res.json(await getUserRisk(req.params.id as string));
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
 router.post("/users/:id/premium", async (req, res) => {
   try {
-    const { isPremium } = req.body as { isPremium: boolean };
+    const { isPremium, durationDays } = req.body as { isPremium: boolean; durationDays?: number };
     const before = await prisma.user.findUniqueOrThrow({ where: { id: req.params.id as string } });
-    // Activation/désactivation manuelle par un admin : accès à vie, pas de
-    // date d'expiration (contrairement à un abonnement payé par le client).
+    const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+    // Activation manuelle par un admin : même durée qu'un abonnement trimestriel
+    // (il n'existe plus d'accès à vie). Prolonge depuis l'échéance en cours.
     const user = await prisma.user.update({
       where: { id: req.params.id as string },
       data: {
         isPremium: !!isPremium,
         premiumSince: isPremium ? before.premiumSince ?? new Date() : before.premiumSince,
-        premiumExpiresAt: isPremium ? null : null,
+        premiumExpiresAt: isPremium
+          ? new Date(Math.max(Date.now(), before.premiumExpiresAt?.getTime() ?? 0) + (durationDays && [30, 90, 180, 365].includes(durationDays) ? durationDays : settings.premiumDurationDays) * 86400000)
+          : null,
       },
     });
 
@@ -373,15 +379,13 @@ router.post("/users/:id/premium", async (req, res) => {
 
     await notifyUser(
       user.id,
-      isPremium ? "premium_activated" : "premium_deactivated",
-      isPremium
-        ? "Ton compte est passé AIFI+ ! Profite des commissions de parrainage, du plafond majoré et des frais réduits."
-        : "Ton abonnement AIFI+ a été désactivé."
+      isPremium ? "premium_granted" : "premium_deactivated",
+      {}
     );
 
     res.json({ id: user.id, isPremium: user.isPremium, premiumSince: user.premiumSince, premiumExpiresAt: user.premiumExpiresAt });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -410,15 +414,15 @@ router.post("/users/:id/validate", async (req, res) => {
       await notifyUser(
         user.referredById,
         "referral_validated",
-        `${user.name}, que vous avez parrainé, a été validé. Vous recevez ${settings.referralBonus} FCFA et ${settings.referralPoints} points.`
+        { name: user.name, bonus: settings.referralBonus, points: settings.referralPoints }
       );
     }
 
-    await notifyUser(user.id, "account_validated", "Votre compte a été validé. Vous pouvez maintenant l'utiliser.");
+    await notifyUser(user.id, "account_validated", {});
 
     res.json(user);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -430,7 +434,7 @@ router.post("/users/:id/suspend", async (req, res) => {
     const user = await suspendUser((req.params.id as string), req.auth!.userId);
     res.json(user);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -439,7 +443,7 @@ router.post("/users/:id/reactivate", async (req, res) => {
     const user = await reactivateUser((req.params.id as string), req.auth!.userId);
     res.json(user);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -449,7 +453,7 @@ router.patch("/users/:id", validateBody(adminUpdateUserSchema), async (req, res)
     const user = await updateUserInfo((req.params.id as string), { name, phone, points, ceiling }, req.auth!.userId);
     res.json(user);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -465,7 +469,7 @@ router.post("/users/:id/reset-password", validateBody(adminResetPasswordSchema),
     });
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -474,7 +478,7 @@ router.post("/users/:id/anonymize", async (req, res) => {
     const user = await anonymizeUser((req.params.id as string), req.auth!.userId);
     res.json(user);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -495,7 +499,7 @@ router.get("/aid-requests", async (req, res) => {
     requests.sort((a: any, b: any) => (a.user.isPremium === b.user.isPremium ? 0 : a.user.isPremium ? -1 : 1));
     res.json(requests);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -504,7 +508,7 @@ router.post("/aid-requests/:id/accept", async (req, res) => {
     const result = await acceptAidRequest((req.params.id as string), req.auth!.userId);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -513,7 +517,7 @@ router.post("/aid-requests/:id/reject", async (req, res) => {
     const result = await rejectAidRequest((req.params.id as string), req.auth!.userId);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -523,7 +527,7 @@ router.post("/aid-requests/:id/disburse", async (req, res) => {
     const result = await disburseAidRequest((req.params.id as string), req.auth!.userId, note);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -536,7 +540,7 @@ router.post("/aid-requests/:id/disburse-mypvit", async (req, res) => {
     const result = await disburseAidRequestViaMypvit((req.params.id as string), req.auth!.userId);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -544,12 +548,12 @@ router.post("/aid-requests/:id/repayments", validateBody(recordRepaymentSchema),
   try {
     const { amount, proofImageUrl } = req.body;
     if (!proofImageUrl) {
-      throw new Error("Un justificatif (image) est requis pour enregistrer un dépôt");
+      throw new AppError("PROOF_REQUIRED", "Un justificatif (image) est requis pour enregistrer un dépôt");
     }
     const result = await recordRepayment((req.params.id as string), amount, req.auth!.userId, proofImageUrl);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -559,7 +563,7 @@ router.post("/aid-requests/:id/repayments", validateBody(recordRepaymentSchema),
 router.get("/users/lookup-by-phone", async (req, res) => {
   try {
     const { phone } = req.query as { phone?: string };
-    if (!phone) throw new Error("Numéro de téléphone requis");
+    if (!phone) throw new AppError("PHONE_REQUIRED", "Numéro de téléphone requis");
     const user = await prisma.user.findFirst({
       where: { phone: { contains: phone } },
       include: {
@@ -573,7 +577,7 @@ router.get("/users/lookup-by-phone", async (req, res) => {
     if (!user) return res.status(404).json({ error: "Aucun utilisateur trouvé avec ce numéro" });
     res.json(user);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -592,7 +596,7 @@ router.get("/repayment-declarations", async (req, res) => {
     });
     res.json(declarations);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -602,7 +606,7 @@ router.post("/repayment-declarations/:id/confirm", validateBody(confirmDeclarati
     const result = await confirmRepaymentDeclaration((req.params.id as string), req.auth!.userId, proofImageUrl);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -612,7 +616,7 @@ router.post("/repayment-declarations/:id/reject", validateBody(rejectDeclaration
     const result = await rejectRepaymentDeclaration((req.params.id as string), req.auth!.userId, reason);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -628,7 +632,7 @@ router.get("/withdrawals", async (req, res) => {
     });
     res.json(withdrawals);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -638,7 +642,7 @@ router.post("/withdrawals/:id/approve", validateBody(approveWithdrawalSchema), a
     const withdrawal = await approveWithdrawal((req.params.id as string), req.auth!.userId, proofImageUrl);
     res.json(withdrawal);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -647,7 +651,7 @@ router.post("/withdrawals/:id/approve-mypvit", async (req, res) => {
     const withdrawal = await approveWithdrawalViaMypvit((req.params.id as string), req.auth!.userId);
     res.json(withdrawal);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -656,7 +660,7 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
     const withdrawal = await rejectWithdrawal((req.params.id as string), req.auth!.userId);
     res.json(withdrawal);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -681,7 +685,7 @@ router.get("/audit-logs", async (req, res) => {
     const logs = await listAuditLogs({ entityType, entityId, adminId });
     res.json(logs);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -690,7 +694,7 @@ router.get("/conversations", async (_req, res) => {
     const conversations = await listConversationsForAdmin();
     res.json(conversations);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -700,7 +704,7 @@ router.get("/conversations/:clientId/messages", async (req, res) => {
     await markThreadRead((req.params.clientId as string), "ADMIN");
     res.json(messages);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -710,7 +714,7 @@ router.post("/conversations/:clientId/messages", validateBody(sendMessageSchema)
     const message = await sendAdminMessage((req.params.clientId as string), req.auth!.userId, text, imageUrl);
     res.json(message);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -719,14 +723,14 @@ router.get("/analytics", async (_req, res) => {
     const analytics = await getAnalytics();
     res.json(analytics);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
 // Remise à zéro complète des données de test avant le vrai lancement en
 // production — irréversible, protégée par une phrase de confirmation exacte
 // envoyée par le client (en plus de la confirmation déjà faite côté écran).
-router.post("/reset-data", async (req, res) => {
+router.post("/reset-data", requireSuperAdmin, async (req, res) => {
   if (!env.allowDataReset) {
     return res.status(403).json({ error: "La réinitialisation des données est désactivée sur ce serveur." });
   }
@@ -747,7 +751,7 @@ router.post("/reset-data", async (req, res) => {
     });
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 

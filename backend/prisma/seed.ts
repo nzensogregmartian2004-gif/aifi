@@ -1,10 +1,11 @@
+import { normalizePhone } from "../src/validation/phone";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
 // Pas de valeurs par défaut : le compte admin n'est créé que si les deux variables sont définies.
-const ADMIN_PHONE = process.env.SEED_ADMIN_PHONE?.replace(/[^\d+]/g, "") ?? "";
+const ADMIN_PHONE = normalizePhone(process.env.SEED_ADMIN_PHONE ?? "");
 const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? "";
 const ADMIN_NAME = process.env.SEED_ADMIN_NAME || "Administrateur";
 

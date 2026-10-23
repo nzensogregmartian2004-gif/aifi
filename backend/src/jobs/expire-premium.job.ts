@@ -23,7 +23,7 @@ export async function expirePremiumSubscriptions() {
     await notifyUser(
       user.id,
       "premium_expired",
-      "Ton abonnement AIFI+ a expiré. Renouvelle-le pour retrouver tes avantages (commissions de parrainage, plafond majoré, frais réduits)."
+      {}
     );
   }
 

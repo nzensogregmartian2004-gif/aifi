@@ -1,4 +1,5 @@
 import { prisma } from "../../db/client";
+import { effectivePoints } from "../ceilings/ceiling.service";
 import { getAvailableCeiling } from "../aid-requests/aid-request.service";
 import { getWalletBalance } from "../wallet/wallet.service";
 
@@ -31,6 +32,8 @@ export async function getClientDashboard(userId: string) {
   const walletBalance = await getWalletBalance(userId);
   const ceilingAvailable = await getAvailableCeiling(userId);
 
+  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+
   // Avantage AIFI+ : +20 sur le niveau de confiance affiché. Ça ne touche
   // que l'affichage (et donc le libellé de palier) — les points réels
   // stockés, eux, restent inchangés et continuent de piloter le plafond
@@ -47,6 +50,8 @@ export async function getClientDashboard(userId: string) {
     ceilingAllowed: user.ceiling,
     ceilingUsed: user.ceiling - ceilingAvailable,
     realPoints: user.points,
+    ceilingPoints: effectivePoints(user.points, user.isPremium, settings.freePointsCap),
+    freePointsCap: settings.freePointsCap,
     ceilingAvailable,
     aidRequestsCount,
     nextDueDate,

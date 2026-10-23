@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { EventEmitter } from "events";
 import { env, isMypvitConfigured, OperatorCode } from "../../config/env";
 
@@ -97,7 +98,7 @@ interface RenewSecretResponse {
 async function fetchNewSecret(operatorCode: OperatorCode): Promise<string> {
   const accountCode = env.mypvit.accounts[operatorCode];
   if (!accountCode) {
-    throw new Error(`Aucun operationAccountCode configuré pour ${operatorCode}.`);
+    throw new AppError("PROVIDER_NOT_CONFIGURED", `Aucun operationAccountCode configuré pour ${operatorCode}.`);
   }
 
   const url = `${env.mypvit.baseUrl}/v2/${env.mypvit.urlCodes.renewSecret}/renew-secret`;
@@ -120,7 +121,7 @@ async function fetchNewSecret(operatorCode: OperatorCode): Promise<string> {
 
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(`MyPVit renew-secret a échoué pour ${operatorCode} (${res.status}): ${text}`);
+    throw new AppError("PROVIDER_ERROR", `MyPVit renew-secret a échoué pour ${operatorCode} (${res.status}): ${text}`);
   }
 
   // Selon le compte, la clé peut arriver directement dans cette réponse...
@@ -140,7 +141,7 @@ async function fetchNewSecret(operatorCode: OperatorCode): Promise<string> {
 
 export async function getSecret(operatorCode: OperatorCode, forceRenew = false): Promise<string> {
   if (!isMypvitConfigured(operatorCode)) {
-    throw new Error(`MyPVit n'est pas configuré pour ${operatorCode} (variable d'environnement manquante)`);
+    throw new AppError("PROVIDER_NOT_CONFIGURED", `MyPVit n'est pas configuré pour ${operatorCode} (variable d'environnement manquante)`);
   }
   const cached = cachedSecrets[operatorCode];
   if (!forceRenew && cached && cached.expiresAt > Date.now()) {
@@ -225,9 +226,9 @@ export async function initiatePayment(params: InitiatePaymentParams, retry = tru
     console.error(`[mypvit] initiatePayment refusé (${res.status}) operator=${params.operatorCode}:`, JSON.stringify(data));
     const code = (data as { error?: string } | null)?.error;
     if (code === "OPERATOR_NOT_ACTIVE") {
-      throw new Error("Ce moyen de paiement n'est pas encore disponible. Choisis un autre moyen ou réessaie plus tard.");
+      throw new AppError("METHOD_UNAVAILABLE", "Ce moyen de paiement n'est pas encore disponible. Choisis un autre moyen ou réessaie plus tard.");
     }
-    throw new Error("Le paiement n'a pas pu être lancé. Réessaie dans quelques instants.");
+    throw new AppError("PAYMENT_START_FAILED", "Le paiement n'a pas pu être lancé. Réessaie dans quelques instants.");
   }
 
   return data as InitiatePaymentResponse;
@@ -314,7 +315,7 @@ export async function giveChange(params: GiveChangeParams, retry = true): Promis
   const data = await res.json().catch(() => null);
 
   if (!res.ok || !data) {
-    throw new Error(`MyPVit a refusé le décaissement (${res.status}): ${JSON.stringify(data)}`);
+    throw new AppError("PROVIDER_ERROR", `MyPVit a refusé le décaissement (${res.status}): ${JSON.stringify(data)}`);
   }
 
   return data as GiveChangeResponse;

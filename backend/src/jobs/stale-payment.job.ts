@@ -32,11 +32,11 @@ export async function flagStalePayments() {
     await notifyUser(
       tx.userId,
       "payment_uncertain",
-      "On n'a toujours pas reçu la confirmation de ton paiement Mobile Money. Si l'argent a été débité, déclare-le manuellement avec une capture d'écran pour qu'on vérifie."
+      {}
     );
     await notifyAdmins(
-      "payment_uncertain",
-      `Paiement MyPVit incertain pour ${tx.user.name} (${tx.amount} FCFA, réf ${tx.reference}) — aucun callback reçu après 5 min.`
+      "admin_payment_uncertain",
+      { name: tx.user.name, amount: tx.amount, reference: tx.reference }
     );
     await prisma.paymentTransaction.update({
       where: { id: tx.id },

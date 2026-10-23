@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { checkVerification } from "../blacklist/blacklist.service";
 import { prisma } from "../../db/client";
 import { assertOwnUpload } from "../uploads/upload-ownership";
@@ -12,12 +13,12 @@ export async function submitVerification(
 ) {
   const existing = await prisma.identityVerification.findUnique({ where: { userId } });
   if (existing?.status === "APPROVED") {
-    throw new Error("Ton identité est déjà vérifiée.");
+    throw new AppError("ALREADY_VERIFIED", "Ton identité est déjà vérifiée.");
   }
 
   // Le verso est obligatoire, sauf pour le passeport (une seule page photo).
   if (input.documentType !== "PASSPORT" && !input.backUrl) {
-    throw new Error("Ajoute la photo du verso de ta pièce d'identité.");
+    throw new AppError("BACK_PHOTO_REQUIRED", "Ajoute la photo du verso de ta pièce d'identité.");
   }
 
   // Chaque fichier doit avoir été envoyé par ce client (sinon on pourrait joindre le fichier d'un autre).

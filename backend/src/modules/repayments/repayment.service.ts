@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { assertOwnUpload } from "../uploads/upload-ownership";
 import { prisma } from "../../db/client";
 import { addPoints } from "../points/points.service";
@@ -28,10 +29,10 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
     const remainingBefore = aidRequest.amountDue - totalRepaidBefore;
 
     if (amount <= 0) {
-      throw new Error("Le montant du remboursement doit être positif");
+      throw new AppError("AMOUNT_NOT_POSITIVE", "Le montant du remboursement doit être positif");
     }
     if (amount > remainingBefore) {
-      throw new Error(`Le remboursement (${amount}) dépasse le montant restant dû (${remainingBefore})`);
+      throw new AppError("REPAYMENT_EXCEEDS_DUE", `Le remboursement (${amount}) dépasse le montant restant dû (${remainingBefore})`, { amount, remaining: remainingBefore });
     }
 
     const isPartial = amount < remainingBefore;
@@ -83,7 +84,7 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
           await notifyUser(
             aidRequest.userId,
             "streak_bonus",
-            `Bravo : ${settings.streakLength} remboursements à temps d'affilée. Tu reçois ${settings.streakBonusPoints} points de niveau de confiance.`
+            { streak: settings.streakLength, points: settings.streakBonusPoints }
           );
         }
       } else {
@@ -96,7 +97,7 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
   }, { isolationLevel: "Serializable" });
   } catch (err: any) {
     if (err?.code === "P2034") {
-      throw new Error("Un autre remboursement est en cours sur cette aide. Réessaie dans un instant.");
+      throw new AppError("CONCURRENT_OPERATION", "Un autre remboursement est en cours sur cette aide. Réessaie dans un instant.");
     }
     throw err;
   }
@@ -113,10 +114,8 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
 
   await notifyUser(
     result.userId,
-    "repayment_recorded",
-    result.fullyRepaid
-      ? `Votre aide de ${amount} FCFA a été entièrement remboursée. Merci !`
-      : `Un remboursement de ${amount} FCFA a été enregistré. Reste dû : ${result.remainingAfter} FCFA.`,
+    result.fullyRepaid ? "repayment_recorded_full" : "repayment_recorded",
+    { amount, remaining: result.remainingAfter },
     aidRequestId
   );
 
@@ -147,13 +146,13 @@ export async function declareRepayment(
   });
 
   if (aidRequest.userId !== userId) {
-    throw new Error("Cette demande d'aide ne vous appartient pas");
+    throw new AppError("AID_NOT_OWNED", "Cette demande d'aide ne vous appartient pas");
   }
   if (!["ACCEPTED", "DISBURSED", "LATE"].includes(aidRequest.status)) {
-    throw new Error("Cette demande n'est pas en cours de remboursement");
+    throw new AppError("AID_NOT_REPAYABLE", "Cette demande n'est pas en cours de remboursement");
   }
   if (!amount || amount <= 0) {
-    throw new Error("Le montant doit être positif");
+    throw new AppError("AMOUNT_NOT_POSITIVE", "Le montant doit être positif");
   }
 
   await assertOwnUpload(proofImageUrl, userId);
@@ -161,14 +160,16 @@ export async function declareRepayment(
   const totalRepaid = aidRequest.repayments.reduce((s, r) => s + r.amount, 0);
   const remaining = aidRequest.amountDue - totalRepaid;
   if (amount > remaining) {
-    throw new Error(`Le montant déclaré (${amount}) dépasse le montant restant dû (${remaining})`);
+    throw new AppError("REPAYMENT_EXCEEDS_DUE", `Le montant déclaré (${amount}) dépasse le montant restant dû (${remaining})`, { amount, remaining });
   }
 
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
   const isFinalPayment = amount === remaining;
   if (!isFinalPayment && amount < settings.minRepaymentAmount) {
-    throw new Error(
-      `Le montant minimum d'une avance de remboursement est de ${settings.minRepaymentAmount} FCFA (sauf pour solder complètement le reste dû de ${remaining} FCFA).`
+    throw new AppError(
+      "MIN_REPAYMENT_AMOUNT",
+      `Le montant minimum d'une avance de remboursement est de ${settings.minRepaymentAmount} FCFA (sauf pour solder complètement le reste dû de ${remaining} FCFA).`,
+      { minAmount: settings.minRepaymentAmount, remaining }
     );
   }
 
@@ -178,8 +179,8 @@ export async function declareRepayment(
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   await notifyAdmins(
-    "repayment_declared",
-    `${user.name} déclare avoir remboursé ${amount} FCFA sur sa demande de ${aidRequest.amount} FCFA (à rembourser : ${aidRequest.amountDue} FCFA).`,
+    "admin_repayment_declared",
+    { name: user.name, amount, requested: aidRequest.amount, due: aidRequest.amountDue },
     aidRequestId
   );
 
@@ -191,7 +192,7 @@ export async function confirmRepaymentDeclaration(declarationId: string, adminId
     where: { id: declarationId },
   });
   if (declaration.status !== "PENDING") {
-    throw new Error("Cette déclaration a déjà été traitée");
+    throw new AppError("ALREADY_PROCESSED", "Cette déclaration a déjà été traitée");
   }
 
   // Verrou atomique : seule UNE confirmation concurrente de cette déclaration
@@ -203,7 +204,7 @@ export async function confirmRepaymentDeclaration(declarationId: string, adminId
     data: { status: "CONFIRMED", resolvedAt: new Date() },
   });
   if (locked.count === 0) {
-    throw new Error("Cette déclaration vient d'être traitée par quelqu'un d'autre.");
+    throw new AppError("ALREADY_TAKEN", "Cette déclaration vient d'être traitée par quelqu'un d'autre.");
   }
 
   let result;
@@ -242,7 +243,7 @@ export async function rejectRepaymentDeclaration(declarationId: string, adminId:
     where: { id: declarationId },
   });
   if (declaration.status !== "PENDING") {
-    throw new Error("Cette déclaration a déjà été traitée");
+    throw new AppError("ALREADY_PROCESSED", "Cette déclaration a déjà été traitée");
   }
 
   const locked = await prisma.repaymentDeclaration.updateMany({
@@ -250,7 +251,7 @@ export async function rejectRepaymentDeclaration(declarationId: string, adminId:
     data: { status: "REJECTED", resolvedAt: new Date() },
   });
   if (locked.count === 0) {
-    throw new Error("Cette déclaration vient d'être traitée par quelqu'un d'autre.");
+    throw new AppError("ALREADY_TAKEN", "Cette déclaration vient d'être traitée par quelqu'un d'autre.");
   }
 
   await logAction({
@@ -265,10 +266,8 @@ export async function rejectRepaymentDeclaration(declarationId: string, adminId:
 
   await notifyUser(
     declaration.userId,
-    "repayment_declaration_rejected",
-    `Votre déclaration de remboursement de ${declaration.amount} FCFA n'a pas été confirmée${
-      reason ? ` : ${reason}` : ""
-    }. Contactez l'administrateur.`,
+    reason ? "repayment_declaration_rejected_reason" : "repayment_declaration_rejected",
+    { amount: declaration.amount, reason: reason ?? "" },
     declaration.aidRequestId
   );
 

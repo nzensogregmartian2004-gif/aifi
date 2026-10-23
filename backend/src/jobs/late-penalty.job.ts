@@ -61,11 +61,8 @@ export async function applyLatePenalties() {
     const remainingDays = settings.lateBlockDays - daysLate;
     await notifyUser(
       request.userId,
-      "late_penalty",
-      `Retard de remboursement : palier ${stepsDue} atteint, -${settings.latePenaltyPoints} points de confiance. ` +
-        (remainingDays > 0
-          ? `Ton compte sera bloqué dans ${remainingDays} jour(s) si le remboursement n'est pas fait.`
-          : `Ton compte est en cours de blocage.`),
+      remainingDays > 0 ? "late_penalty" : "late_penalty_blocked",
+      { steps: stepsDue, points: settings.latePenaltyPoints, days: remainingDays },
       request.id
     );
   }

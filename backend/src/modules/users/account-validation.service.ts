@@ -33,11 +33,11 @@ export async function validateAccount(userId: string, adminId: string) {
     await notifyUser(
       user.referredById,
       "referral_validated",
-      `${user.name}, que vous avez parrainé, a été validé. Vous recevez ${settings.referralBonus} FCFA et ${settings.referralPoints} points.`
+      { name: user.name, bonus: settings.referralBonus, points: settings.referralPoints }
     );
   }
 
-  await notifyUser(user.id, "account_validated", "Votre compte a été validé. Vous pouvez maintenant l'utiliser.");
+  await notifyUser(user.id, "account_validated", {});
 
   return user;
 }

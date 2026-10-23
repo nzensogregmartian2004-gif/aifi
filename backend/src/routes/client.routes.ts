@@ -1,3 +1,5 @@
+import { errorBody } from "../errors";
+import { AppError } from "../errors";
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { prisma } from "../db/client";
@@ -37,9 +39,10 @@ router.get("/settings", async (_req, res) => {
     minWithdrawal: settings.minWithdrawal,
     serviceFeePercent: settings.serviceFeePercent,
     premiumServiceFeePercent: settings.premiumServiceFeePercent,
-    premiumCeilingMultiplier: settings.premiumCeilingMultiplier,
-    premiumMaxCeiling: settings.premiumMaxCeiling,
-    premiumMonthlyPrice: settings.premiumMonthlyPrice,
+    premiumPrice: settings.premiumPrice,
+    premiumDurationDays: settings.premiumDurationDays,
+    freePointsCap: settings.freePointsCap,
+    premiumGraceDays: settings.premiumGraceDays,
     repaymentReceivingOperator: settings.repaymentReceivingOperator,
     repaymentReceivingPhone: settings.repaymentReceivingPhone,
     repaymentReceivingName: settings.repaymentReceivingName,
@@ -82,7 +85,7 @@ router.post("/wallet/withdraw", validateBody(requestWithdrawalSchema), async (re
     const result = await requestWithdrawal(req.auth!.userId, amount, receivingOperator, receivingPhone, receivingName);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -92,7 +95,7 @@ router.post("/aid-requests", validateBody(requestAidSchema), async (req, res) =>
     const result = await requestAid(req.auth!.userId, amount, receivingOperator, receivingPhone, receivingName);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -111,7 +114,7 @@ router.post("/aid-requests/:id/repayments/declare", validateBody(declareRepaymen
     const result = await declareRepayment(req.auth!.userId, (req.params.id as string), amount, note, proofImageUrl);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -122,28 +125,28 @@ router.get("/payments/config", async (_req, res) => {
 router.post("/aid-requests/:id/repayments/pay", validateBody(payRepaymentSchema), async (req, res) => {
   try {
     if (!isMypvitConfigured()) {
-      throw new Error("Le paiement Mobile Money n'est pas encore activé. Utilise la déclaration manuelle.");
+      throw new AppError("MOBILE_MONEY_DISABLED", "Le paiement Mobile Money n'est pas encore activé. Utilise la déclaration manuelle.");
     }
     const { amount, operatorCode, phone, name } = req.body;
     const op = operatorCode || detectOperator((await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } })).phone);
-    if (!op) throw new Error("Impossible de déterminer l'opérateur Mobile Money. Précise-le.");
+    if (!op) throw new AppError("OPERATOR_UNKNOWN", "Impossible de déterminer l'opérateur Mobile Money. Précise-le.");
     const result = await startRepaymentPayment(req.auth!.userId, (req.params.id as string), amount, op, phone, name);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
 router.post("/premium/subscribe", validateBody(premiumSubscribeSchema), async (req, res) => {
   try {
     if (!isMypvitConfigured()) {
-      throw new Error("Le paiement Mobile Money n'est pas encore activé.");
+      throw new AppError("MOBILE_MONEY_DISABLED", "Le paiement Mobile Money n'est pas encore activé.");
     }
     const { operatorCode, phone, name } = req.body;
     const result = await startPremiumSubscriptionPayment(req.auth!.userId, operatorCode, phone, name);
     res.json(result);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -152,7 +155,7 @@ router.get("/payments/:transactionId/status", async (req, res) => {
     const transaction = await getPaymentStatus((req.params.transactionId as string), req.auth!.userId);
     res.json({ status: transaction.status, amount: transaction.amount, operator: transaction.operator });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -162,7 +165,7 @@ router.get("/messages", async (req, res) => {
     await markThreadRead(req.auth!.userId, "CLIENT");
     res.json(messages);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -172,7 +175,7 @@ router.post("/messages", validateBody(sendMessageSchema), async (req, res) => {
     const message = await sendClientMessage(req.auth!.userId, text, imageUrl);
     res.json(message);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -182,7 +185,7 @@ router.get("/verification", async (req, res) => {
     const verification = await getMyVerification(req.auth!.userId);
     res.json(verification);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 
@@ -191,7 +194,7 @@ router.put("/verification", validateBody(submitVerificationSchema), async (req, 
     const verification = await submitVerification(req.auth!.userId, req.body);
     res.json(verification);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json(errorBody(err));
   }
 });
 

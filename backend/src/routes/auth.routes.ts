@@ -12,7 +12,7 @@ router.post("/register", registerRateLimiter, validateBody(registerSchema), asyn
     const user = await register(name, phone, password, referralCode);
     res.json({ id: user.id, referralCode: user.referralCode });
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(400).json({ error: err.message, code: err.code });
   }
 });
 
@@ -22,7 +22,7 @@ router.post("/login", loginRateLimiter, validateBody(loginSchema), async (req, r
     const result = await login(phone, password);
     res.json(result);
   } catch (err: any) {
-    res.status(401).json({ error: err.message });
+    res.status(401).json({ error: err.message, code: err.code, params: err.params });
   }
 });
 

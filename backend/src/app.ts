@@ -18,7 +18,10 @@ export const app = express();
 // via X-Forwarded-For, plutôt que de tout compter comme une seule IP (le proxy).
 app.set("trust proxy", 1);
 
-app.use(cors());
+// L'app mobile ne passe pas par CORS. Seules les origines listées dans CORS_ORIGINS
+// (séparées par des virgules) peuvent appeler l'API depuis un navigateur ; par défaut, aucune.
+const allowedOrigins = (process.env.CORS_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean);
+app.use(cors({ origin: allowedOrigins.length > 0 ? allowedOrigins : false }));
 app.use(express.json());
 // Documents sensibles (pièces d'identité, selfies, justificatifs) : servis
 // derrière une authentification + vérification de propriété, plus jamais en

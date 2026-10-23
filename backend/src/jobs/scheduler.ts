@@ -1,3 +1,5 @@
+import { sendPremiumExpiryReminders } from "./premium-reminder.job";
+import { purgeOldLoginAttempts } from "../modules/users/auth.controller";
 import cron from "node-cron";
 import { applyLatePenalties } from "./late-penalty.job";
 import { sendRepaymentReminders } from "./repayment-reminder.job";
@@ -28,7 +30,9 @@ export function startScheduler() {
     // Après la pénalité/rappel du jour, blocage des comptes en retard depuis plus de 3 jours
     const blockResult = await runSafely("blocage des comptes en retard", () => blockOverdueAccounts());
     const premiumResult = await runSafely("expiration AIFI+", () => expirePremiumSubscriptions());
-    console.log("[scheduler]", penaltyResult, reminderResult, blockResult, premiumResult);
+    const premiumRemindResult = await runSafely("rappels AIFI+", () => sendPremiumExpiryReminders());
+    await runSafely("purge des tentatives de connexion", () => purgeOldLoginAttempts());
+    console.log("[scheduler]", penaltyResult, reminderResult, blockResult, premiumResult, premiumRemindResult);
   });
 
   // La clé secrète MyPVit expire au bout d'1h : renouvellement toutes les 45 min,

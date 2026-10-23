@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { assertOwnUpload } from "../uploads/upload-ownership";
 import { prisma } from "../../db/client";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
@@ -10,7 +11,7 @@ import { notifyAdmins, notifyUser } from "../notifications/notification.service"
 
 export async function sendClientMessage(clientId: string, text?: string, imageUrl?: string) {
   if (!text && !imageUrl) {
-    throw new Error("Le message doit contenir du texte ou une image");
+    throw new AppError("MESSAGE_EMPTY", "Le message doit contenir du texte ou une image");
   }
   await assertOwnUpload(imageUrl, clientId);
   const message = await prisma.message.create({
@@ -18,20 +19,20 @@ export async function sendClientMessage(clientId: string, text?: string, imageUr
   });
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: clientId } });
-  await notifyAdmins("client_message", `${user.name} a envoyé un message.`);
+  await notifyAdmins("admin_client_message", { name: user.name });
 
   return message;
 }
 
 export async function sendAdminMessage(clientId: string, adminId: string, text?: string, imageUrl?: string) {
   if (!text && !imageUrl) {
-    throw new Error("Le message doit contenir du texte ou une image");
+    throw new AppError("MESSAGE_EMPTY", "Le message doit contenir du texte ou une image");
   }
   const message = await prisma.message.create({
     data: { clientId, senderId: adminId, senderRole: "ADMIN", text, imageUrl },
   });
 
-  await notifyUser(clientId, "admin_message", "Vous avez reçu un message de l'administrateur.");
+  await notifyUser(clientId, "admin_message", {});
 
   return message;
 }

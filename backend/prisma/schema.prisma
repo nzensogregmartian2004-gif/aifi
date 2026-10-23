@@ -85,12 +85,15 @@ model User {
   phone          String     @unique
   passwordHash   String
   role           Role       @default(CLIENT)
+  isSuperAdmin   Boolean    @default(false)
+  language       String     @default("fr")
   status         UserStatus @default(PENDING)
   points         Int        @default(0)
   ceiling        Int        @default(0)
   isPremium      Boolean    @default(false)
   premiumSince   DateTime?
   premiumExpiresAt DateTime?
+  premiumReminderFor DateTime?
   referralCode   String     @unique
   referredById   String?
   referredBy     User?      @relation("Referrals", fields: [referredById], references: [id])
@@ -178,6 +181,7 @@ model Notification {
   aidRequestId String?
   type         String
   message      String
+  params       Json?
   read         Boolean  @default(false)
   sentAt       DateTime @default(now())
 }
@@ -195,9 +199,9 @@ model AppSettings {
   reminderDaysBefore Int    @default(2)
   serviceFeePercent  Int    @default(33)
   premiumServiceFeePercent  Int @default(25)
-  premiumCeilingMultiplier  Int @default(3)
-  premiumMaxCeiling         Int @default(150000)
-  premiumMonthlyPrice       Int @default(5000)
+  premiumPrice              Int @default(5000)
+  premiumDurationDays       Int @default(90)
+  freePointsCap             Int @default(150)
   premiumGraceDays          Int @default(3)
   lateStepDays              Int @default(3)
   lateBlockDays             Int @default(15)
@@ -310,4 +314,12 @@ model BlacklistEntry {
   removedReason  String?
 
   @@index([phone])
+}
+
+// Compteur de tentatives de connexion par numéro (verrouillage persistant)
+model LoginAttempt {
+  phone          String    @id
+  count          Int
+  firstAttemptAt DateTime
+  lockedUntil    DateTime?
 }

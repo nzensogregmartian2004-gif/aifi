@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { prisma } from "../../db/client";
 import { getWalletBalance } from "./wallet.service";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
@@ -14,15 +15,15 @@ export async function requestWithdrawal(
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
 
   if (amount < settings.minWithdrawal) {
-    throw new Error(`Montant minimum de retrait : ${settings.minWithdrawal} FCFA`);
+    throw new AppError("MIN_WITHDRAWAL", `Montant minimum de retrait : ${settings.minWithdrawal} FCFA`, { amount: settings.minWithdrawal });
   }
   if (!receivingOperator || !receivingPhone || !receivingName) {
-    throw new Error("L'opérateur, le numéro et le nom du compte de réception sont obligatoires.");
+    throw new AppError("RECEIVING_INFO_REQUIRED", "L'opérateur, le numéro et le nom du compte de réception sont obligatoires.");
   }
 
   const balance = await getWalletBalance(userId);
   if (amount > balance) {
-    throw new Error(`Solde insuffisant (disponible : ${balance} FCFA)`);
+    throw new AppError("INSUFFICIENT_BALANCE", `Solde insuffisant (disponible : ${balance} FCFA)`, { available: balance });
   }
 
   const withdrawal = await prisma.withdrawal.create({
@@ -31,8 +32,8 @@ export async function requestWithdrawal(
 
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   await notifyAdmins(
-    "withdrawal_requested",
-    `${user.name} demande un retrait de ${amount} FCFA de son portefeuille.`
+    "admin_withdrawal_requested",
+    { name: user.name, amount }
   );
 
   return withdrawal;
@@ -55,7 +56,7 @@ export async function requestWithdrawal(
  */
 export async function approveWithdrawal(withdrawalId: string, adminId: string, proofImageUrl: string) {
   if (!proofImageUrl) {
-    throw new Error("Un justificatif (image) est requis pour approuver un retrait");
+    throw new AppError("PROOF_REQUIRED", "Un justificatif (image) est requis pour approuver un retrait");
   }
 
   let result;
@@ -65,16 +66,14 @@ export async function approveWithdrawal(withdrawalId: string, adminId: string, p
         const withdrawal = await tx.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
 
         if (withdrawal.status !== "PENDING") {
-          throw new Error(`Ce retrait a déjà été traité (statut actuel : ${withdrawal.status})`);
+          throw new AppError("ALREADY_PROCESSED", `Ce retrait a déjà été traité (statut actuel : ${withdrawal.status})`);
         }
 
         const entries = await tx.walletEntry.findMany({ where: { userId: withdrawal.userId } });
         const balance = entries.reduce((sum, e) => sum + e.amount, 0);
 
         if (withdrawal.amount > balance) {
-          throw new Error(
-            `Solde insuffisant pour approuver ce retrait (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA). Le solde a dû changer depuis la demande.`
-          );
+          throw new AppError("INSUFFICIENT_BALANCE", `Solde insuffisant pour approuver ce retrait (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA). Le solde a dû changer depuis la demande.`, { requested: withdrawal.amount, available: balance });
         }
 
         const locked = await tx.withdrawal.updateMany({
@@ -82,7 +81,7 @@ export async function approveWithdrawal(withdrawalId: string, adminId: string, p
           data: { status: "APPROVED", proofImageUrl },
         });
         if (locked.count === 0) {
-          throw new Error("Ce retrait vient d'être traité par quelqu'un d'autre.");
+          throw new AppError("ALREADY_TAKEN", "Ce retrait vient d'être traité par quelqu'un d'autre.");
         }
 
         await tx.walletEntry.create({
@@ -95,7 +94,7 @@ export async function approveWithdrawal(withdrawalId: string, adminId: string, p
     );
   } catch (err: any) {
     if (err?.code === "P2034") {
-      throw new Error("Conflit avec une autre opération en cours sur ce compte — réessaie dans un instant.");
+      throw new AppError("CONCURRENT_OPERATION", "Conflit avec une autre opération en cours sur ce compte — réessaie dans un instant.");
     }
     throw err;
   }
@@ -112,7 +111,7 @@ export async function approveWithdrawal(withdrawalId: string, adminId: string, p
   await notifyUser(
     result.userId,
     "withdrawal_approved",
-    `Votre retrait de ${result.amount} FCFA a été approuvé et envoyé.`
+    { amount: result.amount }
   );
 
   return result;
@@ -140,10 +139,10 @@ export async function approveWithdrawal(withdrawalId: string, adminId: string, p
 export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: string) {
   const withdrawal = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId }, include: { user: true } });
   if (withdrawal.status !== "PENDING") {
-    throw new Error(`Ce retrait a déjà été traité (statut actuel : ${withdrawal.status})`);
+    throw new AppError("ALREADY_PROCESSED", `Ce retrait a déjà été traité (statut actuel : ${withdrawal.status})`);
   }
   if (!withdrawal.receivingOperator || !withdrawal.receivingPhone) {
-    throw new Error("Ce retrait n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
+    throw new AppError("NO_RECEIVING_INFO", "Ce retrait n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
   }
 
   try {
@@ -152,7 +151,7 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
         const entries = await tx.walletEntry.findMany({ where: { userId: withdrawal.userId } });
         const balance = entries.reduce((sum, e) => sum + e.amount, 0);
         if (withdrawal.amount > balance) {
-          throw new Error(`Solde insuffisant (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA).`);
+          throw new AppError("INSUFFICIENT_BALANCE", `Solde insuffisant (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA).`, { requested: withdrawal.amount, available: balance });
         }
 
         const locked = await tx.withdrawal.updateMany({
@@ -160,7 +159,7 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
           data: { status: "APPROVING" },
         });
         if (locked.count === 0) {
-          throw new Error("Ce retrait est déjà en cours ou a déjà été traité par quelqu'un d'autre.");
+          throw new AppError("DISBURSE_IN_PROGRESS", "Ce retrait est déjà en cours ou a déjà été traité par quelqu'un d'autre.");
         }
 
         await tx.walletEntry.create({
@@ -171,7 +170,7 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
     );
   } catch (err: any) {
     if (err?.code === "P2034") {
-      throw new Error("Conflit avec une autre opération en cours sur ce compte — réessaie dans un instant.");
+      throw new AppError("CONCURRENT_OPERATION", "Conflit avec une autre opération en cours sur ce compte — réessaie dans un instant.");
     }
     throw err;
   }
@@ -214,7 +213,7 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
       data: { status: "FAILED", rawInitResponse: { error: err.message } },
     });
     await releaseReservation("withdrawal_retry_after_error");
-    throw new Error(`Le retrait automatique a échoué : ${err.message}`);
+    throw new AppError("PAYOUT_FAILED", `Le retrait automatique a échoué : ${err.message}`);
   }
 
   const success = result.status === "SUCCESS";
@@ -225,7 +224,7 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
 
   if (!success) {
     await releaseReservation("withdrawal_retry_after_rejection");
-    throw new Error(result.message || "Le retrait a été refusé par l'opérateur.");
+    throw new AppError("PAYOUT_FAILED", result.message || "Le retrait a été refusé par l'opérateur.");
   }
 
   const updated = await prisma.withdrawal.update({
@@ -244,8 +243,8 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
 
   await notifyUser(
     updated.userId,
-    "withdrawal_approved",
-    `Votre retrait de ${updated.amount} FCFA a été envoyé automatiquement sur votre compte ${operatorCode === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money"}.`
+    "withdrawal_approved_auto",
+    { amount: updated.amount, operator: operatorCode === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money" }
   );
 
   return updated;
@@ -254,7 +253,7 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
 export async function rejectWithdrawal(withdrawalId: string, adminId: string) {
   const existing = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
   if (existing.status !== "PENDING") {
-    throw new Error(`Ce retrait a déjà été traité (statut actuel : ${existing.status})`);
+    throw new AppError("ALREADY_PROCESSED", `Ce retrait a déjà été traité (statut actuel : ${existing.status})`);
   }
 
   const locked = await prisma.withdrawal.updateMany({
@@ -262,7 +261,7 @@ export async function rejectWithdrawal(withdrawalId: string, adminId: string) {
     data: { status: "REJECTED" },
   });
   if (locked.count === 0) {
-    throw new Error("Ce retrait a déjà été traité par quelqu'un d'autre.");
+    throw new AppError("ALREADY_TAKEN", "Ce retrait a déjà été traité par quelqu'un d'autre.");
   }
 
   const withdrawal = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
@@ -279,7 +278,7 @@ export async function rejectWithdrawal(withdrawalId: string, adminId: string) {
   await notifyUser(
     withdrawal.userId,
     "withdrawal_rejected",
-    `Votre retrait de ${withdrawal.amount} FCFA a été refusé.`
+    { amount: withdrawal.amount }
   );
 
   return withdrawal;

@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { prisma } from "../../db/client";
 
 export function canonicalPhone(raw: string): string {
@@ -83,7 +84,7 @@ export async function checkVerification(userId: string, urls: string[]): Promise
       select: { id: true },
     });
     if (blacklisted) {
-      throw new Error("Ce dossier ne peut pas être traité. Contacte le support.");
+      throw new AppError("ACCOUNT_BLOCKED", "Ce dossier ne peut pas être traité. Contacte le support.");
     }
     const sameDocument = await prisma.upload.findFirst({
       where: { sha256: { in: hashes }, ownerId: { not: userId } },

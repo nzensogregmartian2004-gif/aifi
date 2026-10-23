@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { prisma } from "../../db/client";
 import { logAction } from "../audit/audit.service";
 import { notifyUser } from "../notifications/notification.service";
@@ -33,12 +34,12 @@ export async function decideVerification(
 ) {
   const current = await prisma.identityVerification.findUniqueOrThrow({ where: { userId } });
   if (current.status === "APPROVED") {
-    throw new Error("Ce dossier est déjà validé.");
+    throw new AppError("ALREADY_VERIFIED", "Ce dossier est déjà validé.");
   }
 
   const trimmed = note?.trim() || "";
   if (decision === "REJECT" && !trimmed) {
-    throw new Error("Indique le motif du refus : le client le verra.");
+    throw new AppError("REASON_REQUIRED", "Indique le motif du refus : le client le verra.");
   }
 
   const status = decision === "APPROVE" ? "APPROVED" : "REJECTED";
@@ -66,12 +67,12 @@ export async function decideVerification(
     if (user.status === "PENDING") {
       await validateAccount(userId, adminId);
     }
-    await notifyUser(userId, "verification_approved", "Ton identité a été vérifiée.");
+    await notifyUser(userId, "verification_approved", {});
   } else {
     await notifyUser(
       userId,
       "verification_rejected",
-      `Ton dossier d'identité a été refusé : ${trimmed}. Renvoie tes documents depuis Profil > Vérification d'identité.`
+      { reason: trimmed }
     );
   }
 

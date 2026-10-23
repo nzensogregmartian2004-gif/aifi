@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+import { renderNotification, normalizeLang, NotifParams } from "../../notifications/templates";
 import { prisma } from "../../db/client";
 
 /**
@@ -35,37 +37,49 @@ async function sendExpoPush(pushToken: string | null | undefined, title: string,
 export async function notifyUser(
   userId: string,
   type: string,
-  message: string,
+  params: NotifParams = {},
   aidRequestId?: string
 ) {
+  // Le texte est écrit dans la langue du destinataire (en-app comme push)
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { pushToken: true, language: true },
+  });
+  const message = renderNotification(type, params, normalizeLang(user?.language));
   const notification = await prisma.notification.create({
-    data: { userId, type, message, aidRequestId },
+    data: { userId, type, message, params: params as Prisma.InputJsonValue, aidRequestId },
   });
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { pushToken: true } });
   await sendExpoPush(user?.pushToken, "AIFI", message);
 
   return notification;
 }
 
 /**
- * Envoie une notification (en-app + push) à tous les administrateurs actifs.
- * Utilisé pour : nouvelle demande d'aide, déclaration de remboursement,
- * demande de retrait — tout ce qui nécessite un traitement manuel.
+ * Envoie une notification (en-app + push) à tous les administrateurs actifs, chacun
+ * dans sa propre langue. Utilisé pour : nouvelle demande d'aide, déclaration de
+ * remboursement, demande de retrait — tout ce qui nécessite un traitement manuel.
  */
-export async function notifyAdmins(type: string, message: string, aidRequestId?: string) {
+export async function notifyAdmins(type: string, params: NotifParams = {}, aidRequestId?: string) {
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", status: "ACTIVE" },
-    select: { id: true, pushToken: true },
+    select: { id: true, pushToken: true, language: true },
   });
 
   if (admins.length === 0) return;
 
+  const messages = admins.map((a) => renderNotification(type, params, normalizeLang(a.language)));
   await prisma.notification.createMany({
-    data: admins.map((a) => ({ userId: a.id, type, message, aidRequestId })),
+    data: admins.map((a, i) => ({
+      userId: a.id,
+      type,
+      message: messages[i],
+      params: params as Prisma.InputJsonValue,
+      aidRequestId,
+    })),
   });
 
-  await Promise.all(admins.map((a) => sendExpoPush(a.pushToken, "AIFI — action requise", message)));
+  await Promise.all(admins.map((a, i) => sendExpoPush(a.pushToken, "AIFI — action requise", messages[i])));
 }
 
 export async function listNotifications(userId: string) {

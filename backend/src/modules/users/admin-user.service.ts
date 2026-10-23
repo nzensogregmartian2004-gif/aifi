@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { prisma } from "../../db/client";
 import { notifyUser } from "../notifications/notification.service";
 import { logAction } from "../audit/audit.service";
@@ -13,14 +14,14 @@ interface UserUpdate {
 export async function suspendUser(id: string, adminId: string, reason?: string) {
   const user = await prisma.user.update({ where: { id }, data: { status: "SUSPENDED" } });
   await logAction({ adminId, action: "user_suspend", entityType: "User", entityId: id, note: reason });
-  await notifyUser(user.id, "account_suspended", reason ?? "Votre compte a été suspendu par l'administrateur.");
+  await notifyUser(user.id, reason ? "account_suspended_reason" : "account_suspended", { reason: reason ?? "" });
   return user;
 }
 
 export async function reactivateUser(id: string, adminId: string) {
   const user = await prisma.user.update({ where: { id }, data: { status: "ACTIVE" } });
   await logAction({ adminId, action: "user_reactivate", entityType: "User", entityId: id });
-  await notifyUser(user.id, "account_reactivated", "Votre compte a été réactivé.");
+  await notifyUser(user.id, "account_reactivated", {});
   return user;
 }
 
@@ -53,7 +54,7 @@ export async function anonymizeUser(id: string, adminId: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id } });
 
   if (user.anonymizedAt) {
-    throw new Error("Ce compte est déjà anonymisé");
+    throw new AppError("ALREADY_ANONYMIZED", "Ce compte est déjà anonymisé");
   }
 
   const suffix = crypto.randomBytes(6).toString("hex");

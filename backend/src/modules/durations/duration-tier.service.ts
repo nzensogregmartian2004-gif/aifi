@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { prisma } from "../../db/client";
 
 /**
@@ -13,11 +14,9 @@ export async function computeDurationForAmount(amount: number): Promise<{ tierAm
   });
   if (!tier) {
     const smallest = await prisma.durationTier.findFirst({ orderBy: { minAmount: "asc" } });
-    throw new Error(
-      smallest
-        ? `Montant minimum pour une demande : ${smallest.minAmount} FCFA`
-        : "Aucune grille de remboursement n'est configurée."
-    );
+    throw smallest
+      ? new AppError("MIN_REQUEST_AMOUNT", `Montant minimum pour une demande : ${smallest.minAmount} FCFA`, { minAmount: smallest.minAmount })
+      : new AppError("NO_DURATION_GRID", "Aucune grille de remboursement n'est configurée.");
   }
   return { tierAmount: tier.minAmount, durationDays: tier.durationDays };
 }

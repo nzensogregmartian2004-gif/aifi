@@ -62,7 +62,7 @@ export async function sendRepaymentReminders() {
     // notifyUser crée la notification en-app ET envoie le push Expo réel —
     // contrairement à un simple prisma.notification.create(), c'est ce qui
     // fait apparaître le rappel sur le téléphone même app fermée.
-    await notifyUser(request.userId, "reminder", message, request.id);
+    await notifyUser(request.userId, daysLeft === 0 ? "reminder_today" : "reminder_days", { amount: request.amount, days: daysLeft }, request.id);
 
     reminded++;
     // placeholder : brancher ici un envoi SMS/email réel plus tard

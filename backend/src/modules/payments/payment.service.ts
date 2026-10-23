@@ -1,3 +1,4 @@
+import { AppError } from "../../errors";
 import { prisma } from "../../db/client";
 import { initiatePayment, generatePaymentReference, checkTransactionStatus } from "./mypvit.client";
 import { recordRepayment, getRemainingAmount } from "../repayments/repayment.service";
@@ -24,21 +25,21 @@ export async function startRepaymentPayment(
 ) {
   const aidRequest = await prisma.aidRequest.findUniqueOrThrow({ where: { id: aidRequestId } });
   if (aidRequest.userId !== userId) {
-    throw new Error("Cette aide ne t'appartient pas");
+    throw new AppError("AID_NOT_OWNED", "Cette aide ne t'appartient pas");
   }
   if (!["ACCEPTED", "DISBURSED", "LATE"].includes(aidRequest.status)) {
-    throw new Error("Cette aide n'est pas en attente de remboursement");
+    throw new AppError("AID_NOT_REPAYABLE", "Cette aide n'est pas en attente de remboursement");
   }
   if (!amount || amount <= 0) {
-    throw new Error("Le montant doit être positif");
+    throw new AppError("AMOUNT_NOT_POSITIVE", "Le montant doit être positif");
   }
   if (operatorCode !== "VISA_MASTERCARD" && !phone) {
-    throw new Error("Le numéro Mobile Money est obligatoire.");
+    throw new AppError("MOBILE_MONEY_NUMBER_REQUIRED", "Le numéro Mobile Money est obligatoire.");
   }
 
   const remaining = await getRemainingAmount(aidRequestId);
   if (amount > remaining) {
-    throw new Error(`Le montant (${amount}) dépasse le reste dû (${remaining} FCFA).`);
+    throw new AppError("REPAYMENT_EXCEEDS_DUE", `Le montant (${amount}) dépasse le reste dû (${remaining} FCFA).`, { amount, remaining });
   }
 
   const reference = generatePaymentReference();
@@ -81,7 +82,7 @@ export async function startRepaymentPayment(
 }
 
 /**
- * Démarre le paiement de l'abonnement mensuel AIFI+. Même mécanique que le
+ * Démarre le paiement de l'abonnement trimestriel AIFI+. Même mécanique que le
  * remboursement (initiatePayment + webhook), mais purpose="PREMIUM_SUBSCRIPTION"
  * et pas d'aidRequestId — le traitement du succès (handleMypvitCallback /
  * attemptStatusRecovery) bifurque sur ce champ pour savoir quoi faire.
@@ -93,11 +94,11 @@ export async function startPremiumSubscriptionPayment(
   payerName?: string
 ) {
   if (operatorCode !== "VISA_MASTERCARD" && !phone) {
-    throw new Error("Le numéro Mobile Money est obligatoire.");
+    throw new AppError("MOBILE_MONEY_NUMBER_REQUIRED", "Le numéro Mobile Money est obligatoire.");
   }
 
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
-  const amount = settings.premiumMonthlyPrice;
+  const amount = settings.premiumPrice;
   const reference = generatePaymentReference();
 
   const transaction = await prisma.paymentTransaction.create({
@@ -144,22 +145,11 @@ export async function startPremiumSubscriptionPayment(
 export async function activatePremiumSubscription(userId: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
 
-  // Un accès à vie (accordé manuellement par un admin : isPremium=true,
-  // premiumExpiresAt=null) ne doit JAMAIS être dégradé en abonnement à durée
-  // limitée par un paiement — même un paiement réussi ne doit rien changer.
-  if (user.isPremium && user.premiumExpiresAt === null) {
-    await notifyUser(
-      userId,
-      "premium_already_lifetime",
-      "Tu as déjà un accès AIFI+ à vie : ce paiement n'était pas nécessaire. Contacte l'administrateur si tu penses qu'il s'agit d'une erreur."
-    );
-    return;
-  }
-
   const now = new Date();
   const base = user.isPremium && user.premiumExpiresAt && user.premiumExpiresAt > now ? user.premiumExpiresAt : now;
+  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
   const expiresAt = new Date(base);
-  expiresAt.setDate(expiresAt.getDate() + 30);
+  expiresAt.setDate(expiresAt.getDate() + settings.premiumDurationDays);
 
   await prisma.user.update({
     where: { id: userId },
@@ -175,14 +165,14 @@ export async function activatePremiumSubscription(userId: string) {
   await notifyUser(
     userId,
     "premium_activated",
-    `Ton abonnement AIFI+ est actif jusqu'au ${expiresAt.toLocaleDateString("fr-FR")}. Profite de tes avantages !`
+    { date: expiresAt.toISOString() }
   );
 }
 
 export async function getPaymentStatus(transactionId: string, userId: string) {
   const transaction = await prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transactionId } });
   if (transaction.userId !== userId) {
-    throw new Error("Accès refusé");
+    throw new AppError("ACCESS_DENIED", "Accès refusé");
   }
   return transaction;
 }
@@ -211,7 +201,7 @@ async function settleTransaction(
         await recordRepayment(tx.aidRequestId, tx.amount);
       }
     } else {
-      await notifyUser(tx.userId, "payment_failed", paymentFailedMessage(tx.purpose));
+      await notifyUser(tx.userId, tx.purpose === "PREMIUM_SUBSCRIPTION" ? "payment_failed_premium" : "payment_failed_repayment", {});
     }
   } catch (err) {
     // L'effet métier a échoué : on remet la transaction en PENDING pour qu'elle

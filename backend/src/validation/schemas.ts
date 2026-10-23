@@ -1,19 +1,11 @@
 import { z } from "zod";
+import { normalizePhone } from "./phone";
+
+export { normalizePhone };
 
 // Un montant en FCFA : entier positif, borné pour éviter une saisie absurde
 // (ex: 15 zéros tapés par erreur) qui casserait un calcul de plafond plus loin.
 const amount = z.coerce.number().int().positive().max(10_000_000);
-// Numéro normalisé : seuls les chiffres et un éventuel « + » sont conservés
-// (espaces, tirets, points, parenthèses retirés), pour éviter les doublons de compte.
-// Forme unique : « 0 » + 8 chiffres (ex. 077000000), comme dans l'application.
-// Les formes internationales (+241…, 00241…, 241…) sont ramenées à cette forme.
-export function normalizePhone(raw: string): string {
-  let p = raw.replace(/[^\d+]/g, "");
-  if (p.startsWith("00")) p = "+" + p.slice(2);
-  if (p.startsWith("+241")) p = "0" + p.slice(4);
-  else if (/^241\d{8}$/.test(p)) p = "0" + p.slice(3);
-  return p;
-}
 
 const phone = z
   .string()
@@ -130,9 +122,9 @@ export const settingsUpdateSchema = z.object({
   serviceFeePercent: z.coerce.number().min(0).max(500).optional(),
   premiumServiceFeePercent: z.coerce.number().min(0).max(500).optional(),
   premiumGraceDays: z.coerce.number().int().min(0).max(60).optional(),
-  premiumCeilingMultiplier: z.coerce.number().int().min(1).max(20).optional(),
-  premiumMaxCeiling: z.coerce.number().int().min(0).max(10_000_000).optional(),
-  premiumMonthlyPrice: z.coerce.number().int().min(0).max(1_000_000).optional(),
+  premiumPrice: z.coerce.number().int().min(0).max(1_000_000).optional(),
+  premiumDurationDays: z.coerce.number().int().min(30).max(365).optional(),
+  freePointsCap: z.coerce.number().int().min(0).max(100_000).optional(),
   repaymentReceivingOperator: z.enum(["AIRTEL_MONEY", "MOOV_MONEY"]).optional(),
   repaymentReceivingPhone: z.string().min(6).max(20).optional(),
   repaymentReceivingName: z.string().min(2).max(100).optional(),
