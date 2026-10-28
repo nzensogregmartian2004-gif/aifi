@@ -6,7 +6,6 @@ import { prisma } from "../db/client";
 import { getClientDashboard } from "../modules/dashboard/client-dashboard.service";
 import { requestWithdrawal } from "../modules/wallet/withdrawal.service";
 import { requestAid, quoteAidRequest } from "../modules/aid-requests/aid-request.service";
-import { declareRepayment } from "../modules/repayments/repayment.service";
 import { sendClientMessage, getThread, markThreadRead } from "../modules/messages/message.service";
 import { startRepaymentPayment, getPaymentStatus, startPremiumSubscriptionPayment } from "../modules/payments/payment.service";
 import { detectOperator } from "../modules/payments/mypvit.client";
@@ -17,7 +16,6 @@ import {
   requestWithdrawalSchema,
   requestAidSchema,
   aidQuoteQuerySchema,
-  declareRepaymentSchema,
   payRepaymentSchema,
   sendMessageSchema,
   premiumSubscribeSchema,
@@ -133,15 +131,6 @@ router.get("/aid-requests", async (req, res) => {
   res.json(requests);
 });
 
-router.post("/aid-requests/:id/repayments/declare", validateBody(declareRepaymentSchema), async (req, res) => {
-  try {
-    const { amount, note, proofImageUrl } = req.body;
-    const result = await declareRepayment(req.auth!.userId, (req.params.id as string), amount, note, proofImageUrl);
-    res.json(result);
-  } catch (err: any) {
-    res.status(400).json(errorBody(err));
-  }
-});
 
 router.get("/payments/config", async (_req, res) => {
   res.json({ available: isMypvitConfigured() });
