@@ -20,21 +20,21 @@ function toMonthlySeries(rows: MonthCount[] | MonthTotal[], field: "count" | "to
  * On calcule donc une perte POTENTIELLE : le montant encore dû sur les
  * demandes actuellement en retard (LATE), pas une perte confirmée.
  */
-export async function getAnalytics() {
+export async function getAnalytics(db: typeof prisma = prisma) {
   const [newClientsPerMonth, disbursedPerMonth, repaidPerMonth] = await Promise.all([
-    prisma.$queryRaw<MonthCount[]>`
+    db.$queryRaw<MonthCount[]>`
       SELECT date_trunc('month', "createdAt") AS month, COUNT(*)::bigint AS count
       FROM "User"
       WHERE role = 'CLIENT'
       GROUP BY 1 ORDER BY 1
     `,
-    prisma.$queryRaw<MonthTotal[]>`
+    db.$queryRaw<MonthTotal[]>`
       SELECT date_trunc('month', "createdAt") AS month, COALESCE(SUM(amount), 0)::bigint AS total
       FROM "AidRequest"
-      WHERE status NOT IN ('PENDING', 'REJECTED')
+      WHERE status IN ('DISBURSED', 'REPAID', 'LATE')
       GROUP BY 1 ORDER BY 1
     `,
-    prisma.$queryRaw<MonthTotal[]>`
+    db.$queryRaw<MonthTotal[]>`
       SELECT date_trunc('month', "createdAt") AS month, COALESCE(SUM(amount), 0)::bigint AS total
       FROM "Repayment"
       GROUP BY 1 ORDER BY 1
@@ -43,22 +43,30 @@ export async function getAnalytics() {
 
   const [totalClients, activeClients, premiumClients, statusCounts, lateAidRequests, disbursedAgg, repaidAgg] =
     await Promise.all([
-      prisma.user.count({ where: { role: "CLIENT" } }),
-      prisma.user.count({ where: { role: "CLIENT", status: "ACTIVE" } }),
-      prisma.user.count({ where: { role: "CLIENT", isPremium: true } }),
-      prisma.aidRequest.groupBy({ by: ["status"], _count: { _all: true } }),
-      prisma.aidRequest.findMany({ where: { status: "LATE" }, include: { repayments: true } }),
-      prisma.aidRequest.aggregate({
+      db.user.count({ where: { role: "CLIENT" } }),
+      db.user.count({ where: { role: "CLIENT", status: "ACTIVE" } }),
+      db.user.count({ where: { role: "CLIENT", isPremium: true } }),
+      db.aidRequest.groupBy({ by: ["status"], _count: { _all: true } }),
+      db.aidRequest.findMany({ where: { status: "LATE" }, include: { repayments: true } }),
+      db.aidRequest.aggregate({
         _sum: { amount: true },
-        where: { status: { notIn: ["PENDING", "REJECTED"] } },
+        where: { status: { in: ["DISBURSED", "REPAID", "LATE"] } },
       }),
-      prisma.repayment.aggregate({ _sum: { amount: true } }),
+      db.repayment.aggregate({ _sum: { amount: true } }),
     ]);
 
   const outstandingPerLateLoan = lateAidRequests.map(
     (ar) => ar.amountDue - ar.repayments.reduce((s, r) => s + r.amount, 0)
   );
   const totalAtRisk = outstandingPerLateLoan.reduce((s, v) => s + v, 0);
+  const openLoans = await db.aidRequest.findMany({
+    where: { status: { in: ["DISBURSED", "LATE"] } },
+    include: { repayments: true },
+  });
+  const totalOutstanding = openLoans.reduce(
+    (s: number, ar: any) => s + ar.amountDue - ar.repayments.reduce((x: number, r: any) => x + r.amount, 0),
+    0
+  );
   const averageLossPerLateLoan =
     lateAidRequests.length > 0 ? Math.round(totalAtRisk / lateAidRequests.length) : 0;
 
@@ -70,6 +78,7 @@ export async function getAnalytics() {
 
   return {
     kpis: {
+      totalOutstanding,
       totalClients,
       activeClients,
       premiumClients,

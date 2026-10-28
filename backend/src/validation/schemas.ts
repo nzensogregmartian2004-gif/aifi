@@ -45,6 +45,9 @@ export const adminCreateUserSchema = z.object({
   password,
 });
 
+export const adminSuperSchema = z.object({ isSuperAdmin: z.boolean() });
+export const adminStatusSchema = z.object({ status: z.enum(["ACTIVE", "SUSPENDED"]) });
+
 export const adminUpdateUserSchema = z.object({
   name: z.string().trim().min(2).max(100).optional(),
   phone: phone.optional(),

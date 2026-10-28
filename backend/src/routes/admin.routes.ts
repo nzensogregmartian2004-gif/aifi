@@ -14,7 +14,9 @@ import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal } from 
 import { getAdminDashboard } from "../modules/dashboard/admin-dashboard.service";
 import { acceptAidRequest, rejectAidRequest, disburseAidRequest, disburseAidRequestViaMypvit } from "../modules/aid-requests/aid-request.service";
 import { suspendUser, reactivateUser, updateUserInfo, anonymizeUser } from "../modules/users/admin-user.service";
-import { register, adminResetPassword } from "../modules/users/auth.controller";
+import { adminResetPassword } from "../modules/users/auth.controller";
+import { createAdmin, listAdmins, listAdminAudit, setSuperAdmin, setAdminStatus, resetAdminPassword } from "../modules/admins/admin-team.service";
+import { adminSuperSchema, adminStatusSchema } from "../validation/schemas";
 import { notifyUser } from "../modules/notifications/notification.service";
 import { logAction, listAuditLogs } from "../modules/audit/audit.service";
 import { sendAdminMessage, getThread, markThreadRead, listConversationsForAdmin } from "../modules/messages/message.service";
@@ -49,23 +51,44 @@ router.use(requireAuth, requireAdmin);
 router.use("/settings", settingsRouter);
 
 router.get("/admins", async (_req, res) => {
-  const admins = await prisma.user.findMany({
-    where: { role: "ADMIN" },
-    select: { id: true, name: true, phone: true, status: true, createdAt: true },
-    orderBy: { createdAt: "asc" },
-  });
-  res.json(admins);
+  res.json(await listAdmins());
 });
 
+// Création directe d'un administrateur (rôle ADMIN, compte actif) : pas de parcours client, pas de message de bienvenue
 router.post("/admins", requireSuperAdmin, validateBody(adminCreateUserSchema), async (req, res) => {
   try {
-    const { name, phone, password } = req.body;
-    const user = await register(name, phone, password);
-    const admin = await prisma.user.update({
-      where: { id: user.id },
-      data: { role: "ADMIN", status: "ACTIVE" },
-    });
-    res.json({ id: admin.id, name: admin.name, phone: admin.phone });
+    const admin = await createAdmin(req.auth!.userId, req.body);
+    res.json(admin);
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+router.get("/admins/audit", requireSuperAdmin, async (_req, res) => {
+  res.json(await listAdminAudit());
+});
+
+router.patch("/admins/:id/super", requireSuperAdmin, validateBody(adminSuperSchema), async (req, res) => {
+  try {
+    const admin = await setSuperAdmin(req.auth!.userId, req.params.id as string, req.body.isSuperAdmin);
+    res.json(admin);
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+router.patch("/admins/:id/status", requireSuperAdmin, validateBody(adminStatusSchema), async (req, res) => {
+  try {
+    const admin = await setAdminStatus(req.auth!.userId, req.params.id as string, req.body.status);
+    res.json(admin);
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+router.post("/admins/:id/reset-password", requireSuperAdmin, validateBody(adminResetPasswordSchema), async (req, res) => {
+  try {
+    res.json(await resetAdminPassword(req.auth!.userId, req.params.id as string, req.body.newPassword));
   } catch (err: any) {
     res.status(400).json(errorBody(err));
   }
