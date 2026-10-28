@@ -9,8 +9,9 @@ export type NotifParams = Record<string, string | number | boolean>;
 
 export const TEMPLATES: Record<string, string> = {
   premium_expired: "Ton abonnement AIFI+ a expiré. Renouvelle-le pour retrouver tes avantages (commissions de parrainage, frais réduits, paliers supérieurs).",
-  late_penalty: "Retard de remboursement : palier {steps} atteint, -{points} points de confiance. Ton compte sera bloqué dans {days} jour(s) si le remboursement n'est pas fait.",
-  late_penalty_blocked: "Retard de remboursement : palier {steps} atteint, -{points} points de confiance. Ton compte est en cours de blocage.",
+  late_grace_start: "Ton échéance est arrivée à expiration. Tu as {days} jour(s) de grâce pour rembourser sans majoration. Passé ce délai, le montant dû augmentera de {daily} FCFA par jour de retard.",
+  late_grace_reminder: "Jour de grâce : il te reste {days} jour(s) pour rembourser sans majoration. Passé ce délai, le montant dû augmentera de {daily} FCFA par jour de retard.",
+  late_surcharge: "Retard de remboursement : ton montant dû passe à {total} FCFA (+{added} FCFA) et tu perds {points} points de confiance (jour de retard n°{days}). Rembourse au plus vite.",
   premium_expiring: "Ton abonnement AIFI+ expire dans {days} jour(s). Renouvelle-le pour garder les paliers supérieurs et les frais réduits.",
   reminder_today: "Ton remboursement de {amount} FCFA arrive à échéance aujourd'hui.",
   reminder_days: "Ton remboursement de {amount} FCFA arrive à échéance dans {days} jour(s).",

@@ -1,10 +1,9 @@
 import { sendPremiumExpiryReminders } from "./premium-reminder.job";
 import { purgeOldLoginAttempts } from "../modules/users/auth.controller";
 import cron from "node-cron";
-import { applyLatePenalties } from "./late-penalty.job";
+import { applyLateSurcharges } from "./late-surcharge.job";
 import { sendRepaymentReminders } from "./repayment-reminder.job";
 import { flagStalePayments } from "./stale-payment.job";
-import { blockOverdueAccounts } from "./account-block.job";
 import { expirePremiumSubscriptions } from "./expire-premium.job";
 import { getSecret } from "../modules/payments/mypvit.client";
 import { isMypvitConfigured, configuredOperators } from "../config/env";
@@ -23,17 +22,16 @@ async function runSafely<T>(label: string, job: () => Promise<T>): Promise<T | n
 }
 
 export function startScheduler() {
-  // tous les jours à 6h
+  // tous les jours à 6h, heure de Libreville (Gabon, UTC+1)
   cron.schedule("0 6 * * *", async () => {
-    const penaltyResult = await runSafely("pénalités de retard", () => applyLatePenalties());
+    // Retards : jour de grâce (message) puis majoration quotidienne. Pas de blocage de compte.
+    const surchargeResult = await runSafely("majoration des retards", () => applyLateSurcharges());
     const reminderResult = await runSafely("rappels d'échéance", () => sendRepaymentReminders());
-    // Après la pénalité/rappel du jour, blocage des comptes en retard depuis plus de 3 jours
-    const blockResult = await runSafely("blocage des comptes en retard", () => blockOverdueAccounts());
     const premiumResult = await runSafely("expiration AIFI+", () => expirePremiumSubscriptions());
     const premiumRemindResult = await runSafely("rappels AIFI+", () => sendPremiumExpiryReminders());
     await runSafely("purge des tentatives de connexion", () => purgeOldLoginAttempts());
-    console.log("[scheduler]", penaltyResult, reminderResult, blockResult, premiumResult, premiumRemindResult);
-  });
+    console.log("[scheduler]", surchargeResult, reminderResult, premiumResult, premiumRemindResult);
+  }, { timezone: "Africa/Libreville" });
 
   // La clé secrète MyPVit expire au bout d'1h : renouvellement toutes les 45 min,
   // séparément pour chaque compte configuré (un secret ne vaut que pour son compte).

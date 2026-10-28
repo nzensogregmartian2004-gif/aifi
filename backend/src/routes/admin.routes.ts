@@ -1,5 +1,6 @@
 import { errorBody } from "../errors";
 import { AppError } from "../errors";
+import { listVerifications, getVerificationDetail, decideVerification } from "../modules/verification/admin-verification.service";
 import { requireSuperAdmin } from "../middleware/requireSuperAdmin";
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
@@ -750,6 +751,37 @@ router.post("/reset-data", requireSuperAdmin, async (req, res) => {
       note: "Toutes les données transactionnelles et tous les comptes clients ont été supprimés.",
     });
     res.json(result);
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+// Vérifications d'identité (dossiers des clients)
+router.get("/verifications", async (req, res) => {
+  try {
+    const status = typeof req.query.status === "string" ? req.query.status : undefined;
+    res.json(await listVerifications(status));
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+router.get("/verifications/:userId", async (req, res) => {
+  try {
+    res.json(await getVerificationDetail(req.params.userId as string));
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+router.post("/verifications/:userId/decision", async (req, res) => {
+  try {
+    const { decision, note } = req.body as { decision?: string; note?: string };
+    if (decision !== "APPROVE" && decision !== "REJECT") {
+      return res.status(400).json({ error: "Décision invalide.", code: "VALIDATION", params: { field: "decision" } });
+    }
+    const updated = await decideVerification(req.auth!.userId, req.params.userId as string, decision, note);
+    res.json(updated);
   } catch (err: any) {
     res.status(400).json(errorBody(err));
   }

@@ -1,5 +1,5 @@
 import { AppError } from "../../errors";
-import { availableCeiling } from "../finance/rules";
+import { availableCeiling, assertDueChoice, flexibleAmountDue, dueDateChoiceRange } from "../finance/rules";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../db/client";
 import { notifyAdmins, notifyUser } from "../notifications/notification.service";
@@ -35,16 +35,85 @@ export async function getAvailableCeiling(userId: string): Promise<number> {
   return computeAvailableCeiling(prisma, userId);
 }
 
+/**
+ * Conditions d'une demande, calculées ici pour le devis ET pour la création : ce qui
+ * est affiché au client est exactement ce qui sera enregistré.
+ * - Par défaut : durée et montant de la grille (fixés à la date de la demande).
+ * - À partir de flexibleDueMinPoints points : durée choisie, montant recalculé à
+ *   partir des intérêts de la grille ; maximum = double de la grille.
+ * - Le sursis (graceDays) est figé à la demande.
+ */
+async function computeRequestTerms(userId: string, amount: number, requestedDurationDays?: number) {
+  if (!amount || amount <= 0) {
+    throw new AppError("AMOUNT_NOT_POSITIVE", "Le montant demandé doit être positif");
+  }
+  const requester = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+
+  const { tierAmount, durationDays: gridDurationDays } = await computeDurationForAmount(amount);
+  // Le taux ET la durée sont figés à la date de la demande : les modifier plus
+  // tard dans les paramètres n'affecte jamais une demande déjà créée.
+  const feePercent = requester.isPremium ? settings.premiumServiceFeePercent : settings.serviceFeePercent;
+  const gridAmountDue = Math.round(amount * (1 + feePercent / 100));
+  const interestAmount = gridAmountDue - amount;
+
+  const chosenDurationDays = requestedDurationDays ?? gridDurationDays;
+  assertDueChoice({
+    chosenDurationDays,
+    gridDurationDays,
+    points: requester.points,
+    minPoints: settings.flexibleDueMinPoints,
+    minDays: settings.flexibleDueMinDays,
+  });
+
+  const amountDue = flexibleAmountDue(amount, gridAmountDue, gridDurationDays, chosenDurationDays);
+  const dueDate = new Date(Date.now() + chosenDurationDays * 24 * 60 * 60 * 1000);
+  const graceDays = requester.isPremium ? settings.premiumGraceDays : settings.standardGraceDays;
+
+  return {
+    requester,
+    settings,
+    tierAmount,
+    feePercent,
+    gridDurationDays,
+    gridAmountDue,
+    interestAmount,
+    chosenDurationDays,
+    amountDue,
+    dueDate,
+    graceDays,
+  };
+}
+
+/** Devis affiché au client avant confirmation (montant, échéance, sursis, possibilité de choisir la date). */
+export async function quoteAidRequest(userId: string, amount: number, requestedDurationDays?: number) {
+  const terms = await computeRequestTerms(userId, amount, requestedDurationDays);
+  const range = dueDateChoiceRange(terms.gridDurationDays, terms.settings.flexibleDueMinDays);
+  return {
+    amount,
+    feePercent: terms.feePercent,
+    gridDurationDays: terms.gridDurationDays,
+    gridAmountDue: terms.gridAmountDue,
+    chosenDurationDays: terms.chosenDurationDays,
+    amountDue: terms.amountDue,
+    interestPerDay: Math.round(terms.interestAmount / terms.gridDurationDays),
+    dueDate: terms.dueDate.toISOString(),
+    graceDays: terms.graceDays,
+    canChooseDueDate: terms.requester.points >= terms.settings.flexibleDueMinPoints && range.allowed,
+    minPoints: terms.settings.flexibleDueMinPoints,
+    minDays: range.minDays,
+    maxDays: range.maxDays,
+  };
+}
+
 export async function requestAid(
   userId: string,
   amount: number,
   receivingOperator: "AIRTEL_MONEY" | "MOOV_MONEY",
   receivingPhone: string,
-  receivingName: string
+  receivingName: string,
+  requestedDurationDays?: number
 ) {
-  if (!amount || amount <= 0) {
-    throw new AppError("AMOUNT_NOT_POSITIVE", "Le montant demandé doit être positif");
-  }
   if (!receivingOperator || !receivingPhone || !receivingName) {
     throw new AppError("RECEIVING_INFO_REQUIRED", "L'opérateur, le numéro et le nom du compte de réception sont obligatoires.");
   }
@@ -54,14 +123,7 @@ export async function requestAid(
     throw new AppError("ACCOUNT_NOT_ACTIVE", "Ton compte doit d'abord être validé par un administrateur avant de pouvoir demander une aide.");
   }
 
-  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
-  const { tierAmount, durationDays } = await computeDurationForAmount(amount);
-  // Le taux ET la durée sont figés à la date de la demande : les modifier plus
-  // tard dans les paramètres n'affecte jamais une demande déjà créée.
-  const feePercent = requester.isPremium ? settings.premiumServiceFeePercent : settings.serviceFeePercent;
-  const amountDue = Math.round(amount * (1 + feePercent / 100));
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + durationDays);
+  const terms = await computeRequestTerms(userId, amount, requestedDurationDays);
 
   // Contrôle du plafond ET création dans une même transaction Serializable :
   // deux demandes simultanées ne peuvent plus lire le même plafond libre.
@@ -77,10 +139,14 @@ export async function requestAid(
           data: {
             userId,
             amount,
-            amountDue,
-            dueDate,
-            durationDays,
-            durationTierAmount: tierAmount,
+            amountDue: terms.amountDue,
+            baseAmountDue: terms.amountDue,
+            dueDate: terms.dueDate,
+            durationDays: terms.chosenDurationDays,
+            durationTierAmount: terms.tierAmount,
+            gridDurationDays: terms.gridDurationDays,
+            interestAmount: terms.interestAmount,
+            graceDays: terms.graceDays,
             receivingOperator,
             receivingPhone,
             receivingName,

@@ -5,7 +5,7 @@ import { requireAuth } from "../middleware/auth";
 import { prisma } from "../db/client";
 import { getClientDashboard } from "../modules/dashboard/client-dashboard.service";
 import { requestWithdrawal } from "../modules/wallet/withdrawal.service";
-import { requestAid } from "../modules/aid-requests/aid-request.service";
+import { requestAid, quoteAidRequest } from "../modules/aid-requests/aid-request.service";
 import { declareRepayment } from "../modules/repayments/repayment.service";
 import { sendClientMessage, getThread, markThreadRead } from "../modules/messages/message.service";
 import { startRepaymentPayment, getPaymentStatus, startPremiumSubscriptionPayment } from "../modules/payments/payment.service";
@@ -16,6 +16,7 @@ import { getMyVerification, submitVerification } from "../modules/verification/v
 import {
   requestWithdrawalSchema,
   requestAidSchema,
+  aidQuoteQuerySchema,
   declareRepaymentSchema,
   payRepaymentSchema,
   sendMessageSchema,
@@ -43,6 +44,8 @@ router.get("/settings", async (_req, res) => {
     premiumDurationDays: settings.premiumDurationDays,
     freePointsCap: settings.freePointsCap,
     premiumGraceDays: settings.premiumGraceDays,
+    standardGraceDays: settings.standardGraceDays,
+    flexibleDueMinPoints: settings.flexibleDueMinPoints,
     repaymentReceivingOperator: settings.repaymentReceivingOperator,
     repaymentReceivingPhone: settings.repaymentReceivingPhone,
     repaymentReceivingName: settings.repaymentReceivingName,
@@ -91,9 +94,31 @@ router.post("/wallet/withdraw", validateBody(requestWithdrawalSchema), async (re
 
 router.post("/aid-requests", validateBody(requestAidSchema), async (req, res) => {
   try {
-    const { amount, receivingOperator, receivingPhone, receivingName } = req.body;
-    const result = await requestAid(req.auth!.userId, amount, receivingOperator, receivingPhone, receivingName);
+    const { amount, receivingOperator, receivingPhone, receivingName, requestedDurationDays } = req.body;
+    const result = await requestAid(
+      req.auth!.userId,
+      amount,
+      receivingOperator,
+      receivingPhone,
+      receivingName,
+      requestedDurationDays
+    );
     res.json(result);
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+// Devis avant confirmation : montant total, échéance, sursis, et si la date est au choix.
+router.get("/aid-requests/quote", async (req, res) => {
+  const parsed = aidQuoteQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Montant ou durée invalide.", code: "INVALID_QUOTE" });
+  }
+  try {
+    const { amount, requestedDurationDays } = parsed.data;
+    const quote = await quoteAidRequest(req.auth!.userId, amount, requestedDurationDays);
+    res.json(quote);
   } catch (err: any) {
     res.status(400).json(errorBody(err));
   }

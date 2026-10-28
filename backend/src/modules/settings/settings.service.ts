@@ -13,10 +13,13 @@ interface SettingsUpdate {
   commissionPercent?: number;
   minWithdrawal?: number;
   minRepaymentAmount?: number;
-  latePenaltyPoints?: number;
   serviceFeePercent?: number;
   premiumServiceFeePercent?: number;
   premiumGraceDays?: number;
+  standardGraceDays?: number;
+  flexibleDueMinPoints?: number;
+  flexibleDueMinDays?: number;
+  latePenaltyPoints?: number;
   premiumPrice?: number;
   premiumDurationDays?: number;
   freePointsCap?: number;

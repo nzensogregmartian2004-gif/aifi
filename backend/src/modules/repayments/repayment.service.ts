@@ -1,3 +1,4 @@
+import { AMOUNT_EPSILON, isSettled } from "../finance/rules";
 import { AppError } from "../../errors";
 import { assertOwnUpload } from "../uploads/upload-ownership";
 import { prisma } from "../../db/client";
@@ -31,11 +32,11 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
     if (amount <= 0) {
       throw new AppError("AMOUNT_NOT_POSITIVE", "Le montant du remboursement doit être positif");
     }
-    if (amount > remainingBefore) {
+    if (amount > remainingBefore + AMOUNT_EPSILON) {
       throw new AppError("REPAYMENT_EXCEEDS_DUE", `Le remboursement (${amount}) dépasse le montant restant dû (${remainingBefore})`, { amount, remaining: remainingBefore });
     }
 
-    const isPartial = amount < remainingBefore;
+    const isPartial = !isSettled(remainingBefore - amount);
 
     await tx.repayment.create({
       data: { aidRequestId, amount, isPartial, proofImageUrl },
@@ -61,7 +62,7 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
 
     const remainingAfter = remainingBefore - amount;
 
-    if (remainingAfter === 0) {
+    if (isSettled(remainingAfter)) {
       const wasOnTime = !aidRequest.dueDate || new Date() <= aidRequest.dueDate;
 
       await tx.aidRequest.update({
@@ -93,7 +94,7 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
       }
     }
 
-    return { remainingAfter, isPartial, fullyRepaid: remainingAfter === 0, userId: aidRequest.userId };
+    return { remainingAfter, isPartial, fullyRepaid: isSettled(remainingAfter), userId: aidRequest.userId };
   }, { isolationLevel: "Serializable" });
   } catch (err: any) {
     if (err?.code === "P2034") {
@@ -159,12 +160,12 @@ export async function declareRepayment(
 
   const totalRepaid = aidRequest.repayments.reduce((s, r) => s + r.amount, 0);
   const remaining = aidRequest.amountDue - totalRepaid;
-  if (amount > remaining) {
+  if (amount > remaining + AMOUNT_EPSILON) {
     throw new AppError("REPAYMENT_EXCEEDS_DUE", `Le montant déclaré (${amount}) dépasse le montant restant dû (${remaining})`, { amount, remaining });
   }
 
   const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
-  const isFinalPayment = amount === remaining;
+  const isFinalPayment = isSettled(amount - remaining);
   if (!isFinalPayment && amount < settings.minRepaymentAmount) {
     throw new AppError(
       "MIN_REPAYMENT_AMOUNT",

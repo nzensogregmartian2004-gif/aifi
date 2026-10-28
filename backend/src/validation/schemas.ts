@@ -57,6 +57,13 @@ export const requestAidSchema = z.object({
   receivingOperator: z.enum(["AIRTEL_MONEY", "MOOV_MONEY"]),
   receivingPhone: z.string().min(6).max(20),
   receivingName: z.string().min(2).max(100),
+  // Durée choisie (en jours) : seulement à partir du seuil de points ; bornes métier dans aid-request.service.ts
+  requestedDurationDays: z.coerce.number().int().min(1).max(365).optional(),
+});
+
+export const aidQuoteQuerySchema = z.object({
+  amount,
+  requestedDurationDays: z.coerce.number().int().min(1).max(365).optional(),
 });
 
 export const requestWithdrawalSchema = z.object({
@@ -118,10 +125,13 @@ export const settingsUpdateSchema = z.object({
   commissionPercent: z.coerce.number().min(0).max(100).optional(),
   minWithdrawal: z.coerce.number().int().min(0).max(10_000_000).optional(),
   minRepaymentAmount: z.coerce.number().int().min(0).max(10_000_000).optional(),
-  latePenaltyPoints: z.coerce.number().int().min(0).max(1000).optional(),
   serviceFeePercent: z.coerce.number().min(0).max(500).optional(),
   premiumServiceFeePercent: z.coerce.number().min(0).max(500).optional(),
   premiumGraceDays: z.coerce.number().int().min(0).max(60).optional(),
+  standardGraceDays: z.coerce.number().int().min(0).max(60).optional(),
+  flexibleDueMinPoints: z.coerce.number().int().min(0).max(100_000).optional(),
+  flexibleDueMinDays: z.coerce.number().int().min(1).max(365).optional(),
+  latePenaltyPoints: z.coerce.number().int().min(0).max(1000).optional(),
   premiumPrice: z.coerce.number().int().min(0).max(1_000_000).optional(),
   premiumDurationDays: z.coerce.number().int().min(30).max(365).optional(),
   freePointsCap: z.coerce.number().int().min(0).max(100_000).optional(),
