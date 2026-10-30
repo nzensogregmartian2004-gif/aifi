@@ -94,6 +94,7 @@ model User {
   premiumSince   DateTime?
   premiumExpiresAt DateTime?
   premiumReminderFor DateTime?
+  premiumReminderLevel Int @default(0) // 0 = aucun rappel, 1 = dernier mois, 2 = dernière semaine (pour l'échéance premiumReminderFor)
   referralCode   String     @unique
   referredById   String?
   referredBy     User?      @relation("Referrals", fields: [referredById], references: [id])

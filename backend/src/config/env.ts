@@ -15,8 +15,15 @@ function required(key: string): string {
  */
 export type OperatorCode = "AIRTEL_MONEY" | "MOOV_MONEY" | "VISA_MASTERCARD";
 
+function checkJwtSecret(value: string): string {
+  if (value.length < 32) {
+    throw new Error("JWT_SECRET doit contenir au moins 32 caractères (utilise une clé aléatoire longue).");
+  }
+  return value;
+}
+
 export const env = {
-  jwtSecret: required("JWT_SECRET"),
+  jwtSecret: checkJwtSecret(required("JWT_SECRET")),
   port: process.env.PORT ?? "4000",
   // Réinitialisation complète des données : désactivée sauf si ALLOW_DATA_RESET=true
   allowDataReset: process.env.ALLOW_DATA_RESET === "true",

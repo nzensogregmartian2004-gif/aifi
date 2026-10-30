@@ -3,6 +3,7 @@ import { prisma } from "../../db/client";
 import { notifyUser } from "../notifications/notification.service";
 import { logAction } from "../audit/audit.service";
 import crypto from "crypto";
+import { assertPhoneAvailable } from "./phone-owner";
 
 interface UserUpdate {
   name?: string;
@@ -30,6 +31,9 @@ export async function updateUserInfo(id: string, data: UserUpdate, adminId: stri
     where: { id },
     select: { name: true, phone: true, points: true, ceiling: true },
   });
+  if (data.phone !== undefined) {
+    await assertPhoneAvailable(prisma, data.phone, { exceptUserId: id, revealOwner: true });
+  }
   const user = await prisma.user.update({ where: { id }, data });
   await logAction({
     adminId,

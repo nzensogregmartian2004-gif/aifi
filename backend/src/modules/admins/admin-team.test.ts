@@ -92,7 +92,9 @@ describe("création d'un administrateur", () => {
   });
   test("numéro déjà utilisé refusé avec un code clair", async () => {
     const { db } = makeDb({ users: [superA1, { ...client, phone: "077123456" }] });
-    await expectCode(createAdmin("a1", { name: "Awa", phone: "077123456", password: "motdepasse1" }, db), "PHONE_ALREADY_USED");
+    const err: any = await createAdmin("a1", { name: "Awa", phone: "077123456", password: "motdepasse1" }, db).then(() => null, (e) => e);
+    assert.equal(err?.code, "PHONE_TAKEN_BY_CLIENT");
+    assert.ok(err.message.includes("client") && err.message.includes("Client"), "le message doit dire quel compte libérer");
   });
   test("numéro sur la liste noire refusé", async () => {
     const { db } = makeDb({ users: [superA1], blacklist: [{ id: "b1", phone: "077999999", removedAt: null }] });

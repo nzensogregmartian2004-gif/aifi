@@ -145,7 +145,7 @@ router.get("/users/:id", async (req, res) => {
 
 // Bonus de points de confiance décidé par un admin (bon remboursement, fidélité, fêtes…).
 // Le client reçoit une notification avec le message de l'admin et les points ajoutés.
-router.post("/users/:id/bonus", async (req, res) => {
+router.post("/users/:id/bonus", requireSuperAdmin, async (req, res) => {
   try {
     const { points, message } = req.body as { points?: number; message?: string };
     const delta = Number(points);
@@ -197,7 +197,7 @@ function phoneVariants(raw: string): string[] {
 }
 
 // Cadeaux : points de confiance ou crédit portefeuille, à un client ou à tous les clients actifs.
-router.post("/gifts", async (req, res) => {
+router.post("/gifts", requireSuperAdmin, async (req, res) => {
   try {
     const { target, phone, type, amount, message } = req.body as {
       target?: string;
@@ -292,7 +292,7 @@ router.post("/gifts", async (req, res) => {
   }
 });
 
-router.get("/gifts", async (_req, res) => {
+router.get("/gifts", requireSuperAdmin, async (_req, res) => {
   try {
     res.json(await prisma.gift.findMany({ orderBy: { createdAt: "desc" }, take: 50 }));
   } catch (err: any) {
@@ -474,6 +474,10 @@ router.post("/users/:id/reactivate", async (req, res) => {
 router.patch("/users/:id", validateBody(adminUpdateUserSchema), async (req, res) => {
   try {
     const { name, phone, points, ceiling } = req.body;
+    // Points, plafond et numéro : réservés au super administrateur (le nom reste modifiable par tout admin)
+    if ((phone !== undefined || points !== undefined || ceiling !== undefined) && !req.auth!.isSuperAdmin) {
+      return res.status(403).json({ error: "Action réservée au super-administrateur", code: "SUPER_ADMIN_ONLY" });
+    }
     const user = await updateUserInfo((req.params.id as string), { name, phone, points, ceiling }, req.auth!.userId);
     res.json(user);
   } catch (err: any) {

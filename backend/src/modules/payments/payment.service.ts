@@ -142,16 +142,24 @@ export async function startPremiumSubscriptionPayment(
  * d'expiration existante plutôt que depuis aujourd'hui — pour ne pas faire
  * perdre les jours restants au client qui renouvelle en avance.
  */
-export async function activatePremiumSubscription(userId: string) {
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
+export async function activatePremiumSubscription(
+  userId: string,
+  deps: { db?: any; recompute?: (id: string) => Promise<unknown>; notify?: typeof notifyUser } = {}
+) {
+  const db = deps.db ?? prisma;
+  const recompute = deps.recompute ?? recomputeCeilingForUser;
+  const notify = deps.notify ?? notifyUser;
+
+  const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
 
   const now = new Date();
   const base = user.isPremium && user.premiumExpiresAt && user.premiumExpiresAt > now ? user.premiumExpiresAt : now;
-  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+  const settings = await db.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
   const expiresAt = new Date(base);
   expiresAt.setDate(expiresAt.getDate() + settings.premiumDurationDays);
 
-  await prisma.user.update({
+  // Seule écriture critique : si elle échoue, rien n'a été prolongé, le rejeu est sans risque.
+  await db.user.update({
     where: { id: userId },
     data: {
       isPremium: true,
@@ -160,13 +168,18 @@ export async function activatePremiumSubscription(userId: string) {
     },
   });
 
-  await recomputeCeilingForUser(userId);
-
-  await notifyUser(
-    userId,
-    "premium_activated",
-    { date: expiresAt.toISOString() }
-  );
+  // À partir d'ici la prolongation est acquise. Une erreur annexe ne doit JAMAIS remonter :
+  // sinon la transaction repasserait en PENDING et l'abonnement serait prolongé une seconde fois.
+  try {
+    await recompute(userId);
+  } catch (err) {
+    console.error("[premium] recalcul du plafond non effectué :", err);
+  }
+  try {
+    await notify(userId, "premium_activated", { date: expiresAt.toISOString() });
+  } catch (err) {
+    console.error("[premium] notification d'activation non envoyée :", err);
+  }
 }
 
 export async function getPaymentStatus(transactionId: string, userId: string) {

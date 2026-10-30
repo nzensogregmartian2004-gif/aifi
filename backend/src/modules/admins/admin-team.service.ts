@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { prisma } from "../../db/client";
 import { AppError } from "../../errors";
+import { assertPhoneAvailable } from "../users/phone-owner";
 
 /**
  * Gestion de l'équipe administrateur. Toutes les opérations écrivent dans le journal d'audit.
@@ -47,12 +48,7 @@ export async function createAdmin(
   if (!input.password || input.password.length < 8) {
     throw new AppError("PASSWORD_TOO_SHORT", "Le mot de passe doit contenir au moins 8 caractères");
   }
-  if (await db.user.findUnique({ where: { phone: input.phone } })) {
-    throw new AppError("PHONE_ALREADY_USED", "Ce numéro est déjà utilisé par un autre compte.");
-  }
-  if (await db.blacklistEntry.findFirst({ where: { removedAt: null, phone: input.phone }, select: { id: true } })) {
-    throw new AppError("PHONE_BLACKLISTED", "Ce numéro est sur la liste noire : impossible d'en faire un administrateur.");
-  }
+  await assertPhoneAvailable(db, input.phone, { revealOwner: true });
   const passwordHash = await bcrypt.hash(input.password, 10);
   let referralCode = newReferralCode();
   while (await db.user.findUnique({ where: { referralCode } })) referralCode = newReferralCode();
