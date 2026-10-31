@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
+import { clientIp } from "./middleware/verifyWebhookIp";
 import clientRoutes from "./routes/client.routes";
 import adminRoutes from "./routes/admin.routes";
 import authRoutes from "./routes/auth.routes";
@@ -34,6 +35,7 @@ app.use("/uploads", uploadsServeRoutes);
 app.use(
   "/api",
   rateLimit({
+    keyGenerator: clientIp,
     windowMs: 60 * 1000,
     limit: 120, // 120 requêtes / minute / IP, large pour un usage normal
     // Callbacks MyPVit depuis une IP autorisée : pas de limite, sinon des paiements seraient perdus

@@ -1,5 +1,22 @@
 import { Request, Response, NextFunction } from "express";
 
+/**
+ * Adresse réelle de l'appelant. Derrière Cloudflare, req.ip est l'IP du proxy, pas celle de
+ * l'appelant. Cloudflare fournit l'IP réelle dans CF-Connecting-IP et la réécrit à chaque requête.
+ */
+export function clientIp(req: Request): string {
+  const cf = req.headers["cf-connecting-ip"];
+  const raw = typeof cf === "string" && cf.trim() ? cf.trim() : (req.ip ?? "");
+  return raw.replace(/^::ffff:/, "");
+}
+
+/** Description de l'appelant pour les logs de refus : permet de voir ce que le serveur reçoit. */
+function describeCaller(req: Request): string {
+  const cf = req.headers["cf-connecting-ip"] ?? "-";
+  const xff = req.headers["x-forwarded-for"] ?? "-";
+  return `ip=${clientIp(req)}, req.ip=${req.ip}, cf-connecting-ip=${cf}, x-forwarded-for=${xff}`;
+}
+
 function allowedIps(): string[] {
   return (process.env.MYPVIT_WEBHOOK_ALLOWED_IPS ?? "")
     .split(",")
@@ -15,7 +32,7 @@ function allowedIps(): string[] {
 export function isAllowlistedMypvitIp(req: Request): boolean {
   const list = allowedIps();
   if (list.length === 0) return false;
-  const callerIp = (req.ip ?? "").replace(/^::ffff:/, ""); // adresses IPv4-mapped-IPv6
+  const callerIp = clientIp(req);
   return list.includes(callerIp);
 }
 
@@ -30,7 +47,7 @@ export function requireMypvitWebhookAllowlist(req: Request, res: Response, next:
     return res.status(403).json({ error: "Réception de clé désactivée : liste IP non configurée" });
   }
   if (!isAllowlistedMypvitIp(req)) {
-    console.error(`[requireMypvitWebhookAllowlist] appel refusé : IP non autorisée (${req.ip})`);
+    console.error(`[requireMypvitWebhookAllowlist] appel refusé : IP non autorisée (${describeCaller(req)})`);
     return res.status(403).json({ error: "IP non autorisée" });
   }
   next();
@@ -50,7 +67,7 @@ export function verifyMypvitWebhookIp(req: Request, res: Response, next: NextFun
   }
 
   if (!isAllowlistedMypvitIp(req)) {
-    console.error(`[verifyMypvitWebhookIp] Webhook MyPVit refusé : IP non autorisée (${req.ip})`);
+    console.error(`[verifyMypvitWebhookIp] Webhook MyPVit refusé : IP non autorisée (${describeCaller(req)})`);
     return res.status(403).json({ error: "IP non autorisée" });
   }
 
