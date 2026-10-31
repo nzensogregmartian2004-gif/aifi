@@ -76,7 +76,7 @@ function waitForWebhookSecret(operatorCode: OperatorCode, timeoutMs = 15000): Pr
       reject(
         new Error(
           `MyPVit n'a pas envoyé la clé secrète (compte ${operatorCode}) dans le délai imparti (15s). Vérifie que l'URL ` +
-            "webhook de réception (POST /api/webhooks/mypvit/secret) est bien enregistrée dans ton espace MyPVit sous le " +
+            "webhook de réception (POST /api/payments/mypvit/secret) est bien enregistrée dans ton espace MyPVit sous le " +
             "code MYPVIT_RECEPTION_URL_CODE, et joignable depuis internet."
         )
       );

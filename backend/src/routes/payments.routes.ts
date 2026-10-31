@@ -48,7 +48,13 @@ router.post("/mypvit/secret", requireMypvitWebhookAllowlist, async (req, res) =>
       body?.key;
 
     if (secret && typeof secret === "string") {
-      receiveSecretFromWebhook(secret, body?.expires_in || body?.expiresIn);
+      const accountCode = body?.operationAccountCode ?? body?.accountOperationCode ?? body?.merchant_operation_account_code;
+      receiveSecretFromWebhook(
+        secret,
+        body?.expires_in || body?.expiresIn,
+        typeof accountCode === "string" ? accountCode : null
+      );
+      console.info("[mypvit secret webhook] clé reçue, champs du payload :", Object.keys(body ?? {}));
     } else {
       console.warn("[mypvit secret webhook] payload reçu sans clé reconnaissable:", JSON.stringify(body));
     }
