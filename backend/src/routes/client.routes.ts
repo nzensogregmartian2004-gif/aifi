@@ -8,7 +8,6 @@ import { requestWithdrawal } from "../modules/wallet/withdrawal.service";
 import { requestAid, quoteAidRequest } from "../modules/aid-requests/aid-request.service";
 import { sendClientMessage, getThread, markThreadRead } from "../modules/messages/message.service";
 import { startRepaymentPayment, getPaymentStatus, startPremiumSubscriptionPayment } from "../modules/payments/payment.service";
-import { detectOperator } from "../modules/payments/mypvit.client";
 import { isMypvitConfigured } from "../config/env";
 import { validateBody } from "../middleware/validate";
 import { getMyVerification, submitVerification } from "../modules/verification/verification.service";
@@ -142,7 +141,8 @@ router.post("/aid-requests/:id/repayments/pay", validateBody(payRepaymentSchema)
       throw new AppError("MOBILE_MONEY_DISABLED", "Le paiement Mobile Money n'est pas encore activé. Utilise la déclaration manuelle.");
     }
     const { amount, operatorCode, phone, name } = req.body;
-    const op = operatorCode || detectOperator((await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } })).phone);
+    const op = operatorCode;
+    if (!op) return res.status(400).json({ error: "Choisis un opérateur.", code: "OPERATOR_REQUIRED" });
     if (!op) throw new AppError("OPERATOR_UNKNOWN", "Impossible de déterminer l'opérateur Mobile Money. Précise-le.");
     const result = await startRepaymentPayment(req.auth!.userId, (req.params.id as string), amount, op, phone, name);
     res.json(result);

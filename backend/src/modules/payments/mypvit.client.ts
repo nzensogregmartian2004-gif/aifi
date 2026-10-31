@@ -81,6 +81,7 @@ function waitForWebhookSecret(operatorCode: OperatorCode, timeoutMs = 15000): Pr
         )
       );
     }, timeoutMs);
+    timer.unref?.();
     function onSecret(value: string) {
       clearTimeout(timer);
       resolve(value);
@@ -139,6 +140,10 @@ async function fetchNewSecret(operatorCode: OperatorCode): Promise<string> {
   return waiter;
 }
 
+// Demande de clé en cours, par compte : les appels concurrents attendent la même clé
+// au lieu de déclencher plusieurs renouvellements (MyPVit peut invalider la clé précédente).
+const inflightSecrets: Partial<Record<OperatorCode, Promise<string>>> = {};
+
 export async function getSecret(operatorCode: OperatorCode, forceRenew = false): Promise<string> {
   if (!isMypvitConfigured(operatorCode)) {
     throw new AppError("PROVIDER_NOT_CONFIGURED", `MyPVit n'est pas configuré pour ${operatorCode} (variable d'environnement manquante)`);
@@ -147,7 +152,13 @@ export async function getSecret(operatorCode: OperatorCode, forceRenew = false):
   if (!forceRenew && cached && cached.expiresAt > Date.now()) {
     return cached.value;
   }
-  return fetchNewSecret(operatorCode);
+  const pending = inflightSecrets[operatorCode];
+  if (pending) return pending;
+  const request = fetchNewSecret(operatorCode).finally(() => {
+    delete inflightSecrets[operatorCode];
+  });
+  inflightSecrets[operatorCode] = request;
+  return request;
 }
 
 /** Détecte l'opérateur mobile money à partir du préfixe du numéro gabonais. */
