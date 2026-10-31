@@ -20,6 +20,9 @@ const admin_dashboard_service_1 = require("../modules/dashboard/admin-dashboard.
 const aid_request_service_1 = require("../modules/aid-requests/aid-request.service");
 const admin_user_service_1 = require("../modules/users/admin-user.service");
 const auth_controller_1 = require("../modules/users/auth.controller");
+const admin_team_service_1 = require("../modules/admins/admin-team.service");
+const schemas_1 = require("../validation/schemas");
+const payment_service_1 = require("../modules/payments/payment.service");
 const notification_service_1 = require("../modules/notifications/notification.service");
 const audit_service_1 = require("../modules/audit/audit.service");
 const message_service_1 = require("../modules/messages/message.service");
@@ -36,27 +39,71 @@ function parseOperatorParam(value) {
     return "AIRTEL_MONEY";
 }
 const validate_1 = require("../middleware/validate");
-const schemas_1 = require("../validation/schemas");
+const schemas_2 = require("../validation/schemas");
 const router = (0, express_1.Router)();
 router.use(auth_1.requireAuth, requireAdmin_1.requireAdmin);
 router.use("/settings", admin_settings_routes_1.default);
-router.get("/admins", async (_req, res) => {
-    const admins = await client_1.prisma.user.findMany({
-        where: { role: "ADMIN" },
-        select: { id: true, name: true, phone: true, status: true, createdAt: true },
+router.get("/payments/pending", async (_req, res) => {
+    const items = await client_1.prisma.paymentTransaction.findMany({
+        where: { status: "PENDING" },
+        include: { user: { select: { name: true, phone: true } } },
         orderBy: { createdAt: "asc" },
     });
-    res.json(admins);
+    res.json(items);
 });
-router.post("/admins", requireSuperAdmin_1.requireSuperAdmin, (0, validate_1.validateBody)(schemas_1.adminCreateUserSchema), async (req, res) => {
+router.post("/payments/:id/confirm", (0, validate_1.validateBody)(schemas_1.confirmPaymentSchema), async (req, res) => {
     try {
-        const { name, phone, password } = req.body;
-        const user = await (0, auth_controller_1.register)(name, phone, password);
-        const admin = await client_1.prisma.user.update({
-            where: { id: user.id },
-            data: { role: "ADMIN", status: "ACTIVE" },
-        });
-        res.json({ id: admin.id, name: admin.name, phone: admin.phone });
+        res.json(await (0, payment_service_1.confirmPaymentManually)(req.params.id, req.auth.userId, req.body.providerReference));
+    }
+    catch (err) {
+        res.status(400).json((0, errors_1.errorBody)(err));
+    }
+});
+router.post("/payments/:id/reject", (0, validate_1.validateBody)(schemas_1.rejectPaymentSchema), async (req, res) => {
+    try {
+        res.json(await (0, payment_service_1.rejectPaymentManually)(req.params.id, req.auth.userId, req.body.reason));
+    }
+    catch (err) {
+        res.status(400).json((0, errors_1.errorBody)(err));
+    }
+});
+router.get("/admins", async (_req, res) => {
+    res.json(await (0, admin_team_service_1.listAdmins)());
+});
+// Création directe d'un administrateur (rôle ADMIN, compte actif) : pas de parcours client, pas de message de bienvenue
+router.post("/admins", requireSuperAdmin_1.requireSuperAdmin, (0, validate_1.validateBody)(schemas_2.adminCreateUserSchema), async (req, res) => {
+    try {
+        const admin = await (0, admin_team_service_1.createAdmin)(req.auth.userId, req.body);
+        res.json(admin);
+    }
+    catch (err) {
+        res.status(400).json((0, errors_1.errorBody)(err));
+    }
+});
+router.get("/admins/audit", requireSuperAdmin_1.requireSuperAdmin, async (_req, res) => {
+    res.json(await (0, admin_team_service_1.listAdminAudit)());
+});
+router.patch("/admins/:id/super", requireSuperAdmin_1.requireSuperAdmin, (0, validate_1.validateBody)(schemas_1.adminSuperSchema), async (req, res) => {
+    try {
+        const admin = await (0, admin_team_service_1.setSuperAdmin)(req.auth.userId, req.params.id, req.body.isSuperAdmin);
+        res.json(admin);
+    }
+    catch (err) {
+        res.status(400).json((0, errors_1.errorBody)(err));
+    }
+});
+router.patch("/admins/:id/status", requireSuperAdmin_1.requireSuperAdmin, (0, validate_1.validateBody)(schemas_1.adminStatusSchema), async (req, res) => {
+    try {
+        const admin = await (0, admin_team_service_1.setAdminStatus)(req.auth.userId, req.params.id, req.body.status);
+        res.json(admin);
+    }
+    catch (err) {
+        res.status(400).json((0, errors_1.errorBody)(err));
+    }
+});
+router.post("/admins/:id/reset-password", requireSuperAdmin_1.requireSuperAdmin, (0, validate_1.validateBody)(schemas_2.adminResetPasswordSchema), async (req, res) => {
+    try {
+        res.json(await (0, admin_team_service_1.resetAdminPassword)(req.auth.userId, req.params.id, req.body.newPassword));
     }
     catch (err) {
         res.status(400).json((0, errors_1.errorBody)(err));
@@ -113,7 +160,7 @@ router.get("/users/:id", async (req, res) => {
 });
 // Bonus de points de confiance décidé par un admin (bon remboursement, fidélité, fêtes…).
 // Le client reçoit une notification avec le message de l'admin et les points ajoutés.
-router.post("/users/:id/bonus", async (req, res) => {
+router.post("/users/:id/bonus", requireSuperAdmin_1.requireSuperAdmin, async (req, res) => {
     try {
         const { points, message } = req.body;
         const delta = Number(points);
@@ -164,7 +211,7 @@ function phoneVariants(raw) {
     return [...set];
 }
 // Cadeaux : points de confiance ou crédit portefeuille, à un client ou à tous les clients actifs.
-router.post("/gifts", async (req, res) => {
+router.post("/gifts", requireSuperAdmin_1.requireSuperAdmin, async (req, res) => {
     try {
         const { target, phone, type, amount, message } = req.body;
         const text = (message || "").trim();
@@ -249,7 +296,7 @@ router.post("/gifts", async (req, res) => {
         res.status(400).json((0, errors_1.errorBody)(err));
     }
 });
-router.get("/gifts", async (_req, res) => {
+router.get("/gifts", requireSuperAdmin_1.requireSuperAdmin, async (_req, res) => {
     try {
         res.json(await client_1.prisma.gift.findMany({ orderBy: { createdAt: "desc" }, take: 50 }));
     }
@@ -411,9 +458,13 @@ router.post("/users/:id/reactivate", async (req, res) => {
         res.status(400).json((0, errors_1.errorBody)(err));
     }
 });
-router.patch("/users/:id", (0, validate_1.validateBody)(schemas_1.adminUpdateUserSchema), async (req, res) => {
+router.patch("/users/:id", (0, validate_1.validateBody)(schemas_2.adminUpdateUserSchema), async (req, res) => {
     try {
         const { name, phone, points, ceiling } = req.body;
+        // Points, plafond et numéro : réservés au super administrateur (le nom reste modifiable par tout admin)
+        if ((phone !== undefined || points !== undefined || ceiling !== undefined) && !req.auth.isSuperAdmin) {
+            return res.status(403).json({ error: "Action réservée au super-administrateur", code: "SUPER_ADMIN_ONLY" });
+        }
         const user = await (0, admin_user_service_1.updateUserInfo)(req.params.id, { name, phone, points, ceiling }, req.auth.userId);
         res.json(user);
     }
@@ -421,7 +472,7 @@ router.patch("/users/:id", (0, validate_1.validateBody)(schemas_1.adminUpdateUse
         res.status(400).json((0, errors_1.errorBody)(err));
     }
 });
-router.post("/users/:id/reset-password", (0, validate_1.validateBody)(schemas_1.adminResetPasswordSchema), async (req, res) => {
+router.post("/users/:id/reset-password", (0, validate_1.validateBody)(schemas_2.adminResetPasswordSchema), async (req, res) => {
     try {
         const { newPassword } = req.body;
         const result = await (0, auth_controller_1.adminResetPassword)(req.params.id, newPassword);
@@ -508,7 +559,7 @@ router.post("/aid-requests/:id/disburse-mypvit", async (req, res) => {
         res.status(400).json((0, errors_1.errorBody)(err));
     }
 });
-router.post("/aid-requests/:id/repayments", (0, validate_1.validateBody)(schemas_1.recordRepaymentSchema), async (req, res) => {
+router.post("/aid-requests/:id/repayments", (0, validate_1.validateBody)(schemas_2.recordRepaymentSchema), async (req, res) => {
     try {
         const { amount, proofImageUrl } = req.body;
         if (!proofImageUrl) {
@@ -567,7 +618,7 @@ router.get("/repayment-declarations", async (req, res) => {
         res.status(400).json((0, errors_1.errorBody)(err));
     }
 });
-router.post("/repayment-declarations/:id/confirm", (0, validate_1.validateBody)(schemas_1.confirmDeclarationSchema), async (req, res) => {
+router.post("/repayment-declarations/:id/confirm", (0, validate_1.validateBody)(schemas_2.confirmDeclarationSchema), async (req, res) => {
     try {
         const { proofImageUrl } = req.body;
         const result = await (0, repayment_service_1.confirmRepaymentDeclaration)(req.params.id, req.auth.userId, proofImageUrl);
@@ -577,7 +628,7 @@ router.post("/repayment-declarations/:id/confirm", (0, validate_1.validateBody)(
         res.status(400).json((0, errors_1.errorBody)(err));
     }
 });
-router.post("/repayment-declarations/:id/reject", (0, validate_1.validateBody)(schemas_1.rejectDeclarationSchema), async (req, res) => {
+router.post("/repayment-declarations/:id/reject", (0, validate_1.validateBody)(schemas_2.rejectDeclarationSchema), async (req, res) => {
     try {
         const { reason } = req.body;
         const result = await (0, repayment_service_1.rejectRepaymentDeclaration)(req.params.id, req.auth.userId, reason);
@@ -604,7 +655,7 @@ router.get("/withdrawals", async (req, res) => {
         res.status(400).json((0, errors_1.errorBody)(err));
     }
 });
-router.post("/withdrawals/:id/approve", (0, validate_1.validateBody)(schemas_1.approveWithdrawalSchema), async (req, res) => {
+router.post("/withdrawals/:id/approve", (0, validate_1.validateBody)(schemas_2.approveWithdrawalSchema), async (req, res) => {
     try {
         const { proofImageUrl } = req.body;
         const withdrawal = await (0, withdrawal_service_1.approveWithdrawal)(req.params.id, req.auth.userId, proofImageUrl);
@@ -671,7 +722,7 @@ router.get("/conversations/:clientId/messages", async (req, res) => {
         res.status(400).json((0, errors_1.errorBody)(err));
     }
 });
-router.post("/conversations/:clientId/messages", (0, validate_1.validateBody)(schemas_1.sendMessageSchema), async (req, res) => {
+router.post("/conversations/:clientId/messages", (0, validate_1.validateBody)(schemas_2.sendMessageSchema), async (req, res) => {
     try {
         const { text, imageUrl } = req.body;
         const message = await (0, message_service_1.sendAdminMessage)(req.params.clientId, req.auth.userId, text, imageUrl);

@@ -7,6 +7,8 @@ exports.initiatePayment = initiatePayment;
 exports.generatePaymentReference = generatePaymentReference;
 exports.generateDisbursementReference = generateDisbursementReference;
 exports.giveChange = giveChange;
+exports.buildStatusRequest = buildStatusRequest;
+exports.parseStatusResponse = parseStatusResponse;
 exports.checkTransactionStatus = checkTransactionStatus;
 exports.checkKyc = checkKyc;
 exports.getOperators = getOperators;
@@ -155,6 +157,7 @@ async function initiatePayment(params, retry = true) {
         method: "POST",
         headers: {
             "X-Secret": secret,
+            "X-Callback-MediaType": "application/json",
             Accept: "application/json",
             "Content-Type": "application/json",
         },
@@ -252,48 +255,46 @@ async function giveChange(params, retry = true) {
     return data;
 }
 /**
- * Interroge le statut d'une transaction (endpoint v1 "/status").
- *
- * ⚠️ Le format exact de la requête/réponse de cet endpoint n'est PAS publié
- * dans la doc MyPVit actuelle (contrairement à renew-secret et /rest). Cette
- * implémentation est une hypothèse raisonnable (mêmes conventions que le
- * reste de l'API : X-Secret, JSON, mêmes noms de champs vus dans le callback)
- * mais N'A PAS été confirmée avec MyPVit.
- *
- * Par sécurité, la fonction est volontairement stricte : elle ne renvoie un
- * statut exploitable QUE si la réponse contient un champ "status" reconnu
- * (SUCCESS/FAILED/PENDING). Toute réponse inattendue renvoie `null` — jamais
- * une supposition — pour ne jamais faire croire à tort qu'un paiement a
- * réussi. Le job appelant (stale-payment.job.ts) doit continuer à traiter
- * `null` comme "toujours incertain, ne rien créditer".
+ * Vérification de statut (Check Status), conforme à la collection Postman officielle MyPVit :
+ *   GET {base}/{code_url_status}/status?transactionId=...&accountOperationCode=...&transactionOperation=PAYMENT
+ * avec le seul en-tête X-Secret. `transactionId` est l'identifiant MyPVit renvoyé à l'initiation
+ * (reference_id, ex. PAY23102400001), et NON notre référence marchande.
  */
-async function checkTransactionStatus(reference, operatorCode) {
+function buildStatusRequest(providerTransactionId, accountCode, transactionOperation = "PAYMENT") {
+    const query = new URLSearchParams({
+        transactionId: providerTransactionId,
+        accountOperationCode: accountCode,
+        transactionOperation,
+    });
+    return { url: `${env_1.env.mypvit.baseUrl}/${env_1.env.mypvit.urlCodes.status}/status?${query.toString()}` };
+}
+/**
+ * Lit le statut d'une réponse Check Status (exemple officiel : { "status": "SUCCESS", ... }).
+ * Toute réponse sans statut reconnu renvoie null : on ne suppose jamais un résultat.
+ */
+function parseStatusResponse(data) {
+    const raw = (data?.status ?? data?.transaction_status ?? data?.transactionStatus ?? "").toString().toUpperCase();
+    return ["SUCCESS", "FAILED", "PENDING"].includes(raw) ? raw : null;
+}
+async function checkTransactionStatus(providerTransactionId, operatorCode, transactionOperation = "PAYMENT", retry = true) {
     try {
-        const secret = await getSecret(operatorCode);
         const accountCode = env_1.env.mypvit.accounts[operatorCode];
-        const url = `${env_1.env.mypvit.baseUrl}/${env_1.env.mypvit.urlCodes.status}/status`;
-        const res = await fetch(url, {
-            method: "POST",
-            headers: { "X-Secret": secret, Accept: "application/json", "Content-Type": "application/json" },
-            body: JSON.stringify({
-                // On envoie plusieurs variantes de nom de champ (snake_case et
-                // camelCase) faute de savoir laquelle MyPVit attend ici — un champ
-                // en trop est ignoré par la plupart des API, donc sans risque.
-                reference,
-                merchant_reference_id: reference,
-                merchantReferenceId: reference,
-                operation_account_code: accountCode,
-                operationAccountCode: accountCode,
-            }),
-        });
-        const data = await res.json().catch(() => null);
-        if (!data)
+        if (!accountCode || !providerTransactionId)
             return null;
-        const status = (data.status || data.transaction_status || data.transactionStatus || "").toString().toUpperCase();
-        if (["SUCCESS", "FAILED", "PENDING"].includes(status)) {
-            return status;
+        const secret = await getSecret(operatorCode);
+        const { url } = buildStatusRequest(providerTransactionId, accountCode, transactionOperation);
+        const res = await fetch(url, {
+            method: "GET",
+            headers: { "X-Secret": secret, Accept: "application/json" },
+        });
+        if (res.status === 401 && retry) {
+            await getSecret(operatorCode, true);
+            return checkTransactionStatus(providerTransactionId, operatorCode, transactionOperation, false);
         }
-        return null;
+        if (!res.ok)
+            return null;
+        const data = await res.json().catch(() => null);
+        return parseStatusResponse(data);
     }
     catch {
         return null;

@@ -6,6 +6,8 @@ exports.activatePremiumSubscription = activatePremiumSubscription;
 exports.getPaymentStatus = getPaymentStatus;
 exports.attemptStatusRecovery = attemptStatusRecovery;
 exports.handleMypvitCallback = handleMypvitCallback;
+exports.confirmPaymentManually = confirmPaymentManually;
+exports.rejectPaymentManually = rejectPaymentManually;
 const errors_1 = require("../../errors");
 const client_1 = require("../../db/client");
 const mypvit_client_1 = require("./mypvit.client");
@@ -123,14 +125,18 @@ async function startPremiumSubscriptionPayment(userId, operatorCode, phone, paye
  * d'expiration existante plutôt que depuis aujourd'hui — pour ne pas faire
  * perdre les jours restants au client qui renouvelle en avance.
  */
-async function activatePremiumSubscription(userId) {
-    const user = await client_1.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+async function activatePremiumSubscription(userId, deps = {}) {
+    const db = deps.db ?? client_1.prisma;
+    const recompute = deps.recompute ?? points_service_1.recomputeCeilingForUser;
+    const notify = deps.notify ?? notification_service_1.notifyUser;
+    const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
     const now = new Date();
     const base = user.isPremium && user.premiumExpiresAt && user.premiumExpiresAt > now ? user.premiumExpiresAt : now;
-    const settings = await client_1.prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+    const settings = await db.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
     const expiresAt = new Date(base);
     expiresAt.setDate(expiresAt.getDate() + settings.premiumDurationDays);
-    await client_1.prisma.user.update({
+    // Seule écriture critique : si elle échoue, rien n'a été prolongé, le rejeu est sans risque.
+    await db.user.update({
         where: { id: userId },
         data: {
             isPremium: true,
@@ -138,8 +144,20 @@ async function activatePremiumSubscription(userId) {
             premiumExpiresAt: expiresAt,
         },
     });
-    await (0, points_service_1.recomputeCeilingForUser)(userId);
-    await (0, notification_service_1.notifyUser)(userId, "premium_activated", { date: expiresAt.toISOString() });
+    // À partir d'ici la prolongation est acquise. Une erreur annexe ne doit JAMAIS remonter :
+    // sinon la transaction repasserait en PENDING et l'abonnement serait prolongé une seconde fois.
+    try {
+        await recompute(userId);
+    }
+    catch (err) {
+        console.error("[premium] recalcul du plafond non effectué :", err);
+    }
+    try {
+        await notify(userId, "premium_activated", { date: expiresAt.toISOString() });
+    }
+    catch (err) {
+        console.error("[premium] notification d'activation non envoyée :", err);
+    }
 }
 async function getPaymentStatus(transactionId, userId) {
     const transaction = await client_1.prisma.paymentTransaction.findUniqueOrThrow({ where: { id: transactionId } });
@@ -192,7 +210,9 @@ async function attemptStatusRecovery(transactionId) {
     const transaction = await client_1.prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
     if (!transaction || transaction.status !== "PENDING")
         return "still_pending";
-    const status = await (0, mypvit_client_1.checkTransactionStatus)(transaction.reference, transaction.operator);
+    if (!transaction.providerTransactionId)
+        return "still_pending";
+    const status = await (0, mypvit_client_1.checkTransactionStatus)(transaction.providerTransactionId, transaction.operator);
     if (status === null)
         return "unavailable";
     if (status === "PENDING")
@@ -221,7 +241,7 @@ async function handleMypvitCallback(payload, opts) {
         console.error(`[mypvit callback] montant incohérent pour ${transaction.reference} (reçu ${payload.amount}, attendu ${transaction.amount})`);
         return { alreadyProcessed: false, unknown: false, mismatch: true };
     }
-    const providerStatus = await (0, mypvit_client_1.checkTransactionStatus)(transaction.reference, transaction.operator);
+    const providerStatus = await (0, mypvit_client_1.checkTransactionStatus)(transaction.providerTransactionId ?? payload.transactionId, transaction.operator);
     let finalStatus = null;
     if (providerStatus === "SUCCESS" || providerStatus === "FAILED") {
         finalStatus = providerStatus;
@@ -239,4 +259,47 @@ async function handleMypvitCallback(payload, opts) {
         providerTransactionId: payload.transactionId,
     });
     return { alreadyProcessed: !applied, unknown: false };
+}
+/**
+ * Confirmation manuelle d'un paiement resté en attente (argent débité chez l'opérateur mais
+ * callback ou vérification automatique indisponibles). Passe par le même chemin atomique que
+ * le callback : le remboursement n'est enregistré qu'une seule fois, même en cas de double clic
+ * ou si le callback arrive plus tard.
+ */
+async function confirmPaymentManually(transactionId, adminId, providerReference) {
+    const tx = await client_1.prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
+    if (!tx)
+        throw new errors_1.AppError("NOT_FOUND", "Transaction introuvable");
+    const applied = await settleTransaction(tx, "SUCCESS", { providerTransactionId: providerReference });
+    if (!applied)
+        throw new errors_1.AppError("ALREADY_PROCESSED", "Cette transaction est déjà traitée.");
+    await client_1.prisma.auditLog.create({
+        data: {
+            adminId,
+            action: "payment_confirmed_manually",
+            entityType: "PaymentTransaction",
+            entityId: tx.id,
+            after: { reference: tx.reference, providerReference, amount: tx.amount, purpose: tx.purpose },
+        },
+    });
+    return { success: true };
+}
+/** Rejet manuel : à utiliser seulement si l'argent n'a pas été débité chez l'opérateur. */
+async function rejectPaymentManually(transactionId, adminId, reason) {
+    const tx = await client_1.prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
+    if (!tx)
+        throw new errors_1.AppError("NOT_FOUND", "Transaction introuvable");
+    const applied = await settleTransaction(tx, "FAILED", {});
+    if (!applied)
+        throw new errors_1.AppError("ALREADY_PROCESSED", "Cette transaction est déjà traitée.");
+    await client_1.prisma.auditLog.create({
+        data: {
+            adminId,
+            action: "payment_rejected_manually",
+            entityType: "PaymentTransaction",
+            entityId: tx.id,
+            after: { reference: tx.reference, reason: reason ?? null, amount: tx.amount },
+        },
+    });
+    return { success: true };
 }

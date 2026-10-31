@@ -12,6 +12,7 @@ const client_1 = require("../../db/client");
 const notification_service_1 = require("../notifications/notification.service");
 const audit_service_1 = require("../audit/audit.service");
 const crypto_1 = __importDefault(require("crypto"));
+const phone_owner_1 = require("./phone-owner");
 async function suspendUser(id, adminId, reason) {
     const user = await client_1.prisma.user.update({ where: { id }, data: { status: "SUSPENDED" } });
     await (0, audit_service_1.logAction)({ adminId, action: "user_suspend", entityType: "User", entityId: id, note: reason });
@@ -29,6 +30,9 @@ async function updateUserInfo(id, data, adminId) {
         where: { id },
         select: { name: true, phone: true, points: true, ceiling: true },
     });
+    if (data.phone !== undefined) {
+        await (0, phone_owner_1.assertPhoneAvailable)(client_1.prisma, data.phone, { exceptUserId: id, revealOwner: true });
+    }
     const user = await client_1.prisma.user.update({ where: { id }, data });
     await (0, audit_service_1.logAction)({
         adminId,

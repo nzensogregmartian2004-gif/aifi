@@ -236,7 +236,8 @@ export async function attemptStatusRecovery(transactionId: string): Promise<"res
   const transaction = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
   if (!transaction || transaction.status !== "PENDING") return "still_pending";
 
-  const status = await checkTransactionStatus(transaction.reference, transaction.operator as OperatorCode);
+  if (!transaction.providerTransactionId) return "still_pending";
+  const status = await checkTransactionStatus(transaction.providerTransactionId, transaction.operator as OperatorCode);
   if (status === null) return "unavailable";
   if (status === "PENDING") return "still_pending";
 
@@ -279,7 +280,10 @@ export async function handleMypvitCallback(
     return { alreadyProcessed: false, unknown: false, mismatch: true };
   }
 
-  const providerStatus = await checkTransactionStatus(transaction.reference, transaction.operator as OperatorCode);
+  const providerStatus = await checkTransactionStatus(
+    transaction.providerTransactionId ?? payload.transactionId,
+    transaction.operator as OperatorCode
+  );
 
   let finalStatus: "SUCCESS" | "FAILED" | null = null;
   if (providerStatus === "SUCCESS" || providerStatus === "FAILED") {

@@ -92,16 +92,23 @@ async function recordRepayment(aidRequestId, amount, adminId, proofImageUrl) {
         }
         throw err;
     }
-    if (adminId) {
-        await (0, audit_service_1.logAction)({
-            adminId,
-            action: "repayment_record_direct",
-            entityType: "AidRequest",
-            entityId: aidRequestId,
-            after: { amount, remainingAfter: result.remainingAfter, fullyRepaid: result.fullyRepaid },
-        });
+    // Après commit : une erreur de journal ou de notification ne doit JAMAIS annuler ni rejouer
+    // l'enregistrement (un rejeu compterait un remboursement partiel deux fois).
+    try {
+        if (adminId) {
+            await (0, audit_service_1.logAction)({
+                adminId,
+                action: "repayment_record_direct",
+                entityType: "AidRequest",
+                entityId: aidRequestId,
+                after: { amount, remainingAfter: result.remainingAfter, fullyRepaid: result.fullyRepaid },
+            });
+        }
+        await (0, notification_service_1.notifyUser)(result.userId, result.fullyRepaid ? "repayment_recorded_full" : "repayment_recorded", { amount, remaining: result.remainingAfter }, aidRequestId);
     }
-    await (0, notification_service_1.notifyUser)(result.userId, result.fullyRepaid ? "repayment_recorded_full" : "repayment_recorded", { amount, remaining: result.remainingAfter }, aidRequestId);
+    catch (err) {
+        console.error("[repayment] effets après commit non finalisés :", err);
+    }
     return result;
 }
 /**

@@ -8,7 +8,6 @@ const client_1 = require("../db/client");
 const client_dashboard_service_1 = require("../modules/dashboard/client-dashboard.service");
 const withdrawal_service_1 = require("../modules/wallet/withdrawal.service");
 const aid_request_service_1 = require("../modules/aid-requests/aid-request.service");
-const repayment_service_1 = require("../modules/repayments/repayment.service");
 const message_service_1 = require("../modules/messages/message.service");
 const payment_service_1 = require("../modules/payments/payment.service");
 const mypvit_client_1 = require("../modules/payments/mypvit.client");
@@ -108,16 +107,6 @@ router.get("/aid-requests", async (req, res) => {
         orderBy: { createdAt: "desc" },
     });
     res.json(requests);
-});
-router.post("/aid-requests/:id/repayments/declare", (0, validate_1.validateBody)(schemas_1.declareRepaymentSchema), async (req, res) => {
-    try {
-        const { amount, note, proofImageUrl } = req.body;
-        const result = await (0, repayment_service_1.declareRepayment)(req.auth.userId, req.params.id, amount, note, proofImageUrl);
-        res.json(result);
-    }
-    catch (err) {
-        res.status(400).json((0, errors_1.errorBody)(err));
-    }
 });
 router.get("/payments/config", async (_req, res) => {
     res.json({ available: (0, env_1.isMypvitConfigured)() });

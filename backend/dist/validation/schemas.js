@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.submitVerificationSchema = exports.durationTierSchema = exports.settingsUpdateSchema = exports.settingsCeilingSchema = exports.sendMessageSchema = exports.confirmDeclarationSchema = exports.approveWithdrawalSchema = exports.rejectDeclarationSchema = exports.premiumSubscribeSchema = exports.payRepaymentSchema = exports.declareRepaymentSchema = exports.recordRepaymentSchema = exports.requestWithdrawalSchema = exports.aidQuoteQuerySchema = exports.requestAidSchema = exports.adminUpdateUserSchema = exports.adminCreateUserSchema = exports.adminResetPasswordSchema = exports.changePasswordSchema = exports.loginSchema = exports.registerSchema = exports.normalizePhone = void 0;
+exports.submitVerificationSchema = exports.durationTierSchema = exports.settingsUpdateSchema = exports.settingsCeilingSchema = exports.sendMessageSchema = exports.confirmDeclarationSchema = exports.approveWithdrawalSchema = exports.rejectDeclarationSchema = exports.premiumSubscribeSchema = exports.payRepaymentSchema = exports.declareRepaymentSchema = exports.recordRepaymentSchema = exports.requestWithdrawalSchema = exports.aidQuoteQuerySchema = exports.requestAidSchema = exports.adminUpdateUserSchema = exports.adminStatusSchema = exports.adminSuperSchema = exports.rejectPaymentSchema = exports.confirmPaymentSchema = exports.adminCreateUserSchema = exports.adminResetPasswordSchema = exports.changePasswordSchema = exports.loginSchema = exports.registerSchema = exports.normalizePhone = void 0;
 const zod_1 = require("zod");
 const phone_1 = require("./phone");
 Object.defineProperty(exports, "normalizePhone", { enumerable: true, get: function () { return phone_1.normalizePhone; } });
@@ -39,6 +39,10 @@ exports.adminCreateUserSchema = zod_1.z.object({
     phone,
     password,
 });
+exports.confirmPaymentSchema = zod_1.z.object({ providerReference: zod_1.z.string().trim().min(3).max(100) });
+exports.rejectPaymentSchema = zod_1.z.object({ reason: zod_1.z.string().trim().max(200).optional() });
+exports.adminSuperSchema = zod_1.z.object({ isSuperAdmin: zod_1.z.boolean() });
+exports.adminStatusSchema = zod_1.z.object({ status: zod_1.z.enum(["ACTIVE", "SUSPENDED"]) });
 exports.adminUpdateUserSchema = zod_1.z.object({
     name: zod_1.z.string().trim().min(2).max(100).optional(),
     phone: phone.optional(),
