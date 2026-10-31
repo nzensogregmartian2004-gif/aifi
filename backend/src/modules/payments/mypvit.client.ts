@@ -1,6 +1,6 @@
 import { AppError } from "../../errors";
 import { EventEmitter } from "events";
-import { env, isMypvitConfigured, OperatorCode } from "../../config/env";
+import { env, configuredOperators, isMypvitConfigured, OperatorCode } from "../../config/env";
 
 /**
  * Client pour l'API MyPVit (https://docs.mypvit.pro).
@@ -448,5 +448,28 @@ export async function getOperators(operatorCode: OperatorCode): Promise<MypvitOp
     return Array.isArray(data) ? data : data.operators || data.data || [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Contrôle de connexion à MyPVit, sans aucun paiement : demande une clé pour chaque compte
+ * configuré et écrit le résultat dans les logs. La clé elle-même n'est jamais affichée.
+ */
+export async function checkMypvitConnections(
+  log: (msg: string) => void = console.info,
+  warn: (msg: string) => void = console.warn
+): Promise<void> {
+  const operators = configuredOperators();
+  if (operators.length === 0) {
+    warn("[mypvit] contrôle au démarrage : aucun compte configuré (MYPVIT_OPERATION_ACCOUNT_CODE_*).");
+    return;
+  }
+  for (const op of operators) {
+    try {
+      await getSecret(op);
+      log(`[mypvit] contrôle au démarrage : ${op} — clé obtenue, connexion OK.`);
+    } catch (err: any) {
+      warn(`[mypvit] contrôle au démarrage : ${op} — ÉCHEC : ${err?.message ?? err}`);
+    }
   }
 }

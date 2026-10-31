@@ -1,20 +1,20 @@
 import { prisma } from "../../db/client";
 import { computeCeiling } from "../ceilings/ceiling.service";
 
-export async function addPoints(userId: string, delta: number, reason: string) {
-  const user = await prisma.user.update({
+export async function addPoints(userId: string, delta: number, reason: string, db: any = prisma) {
+  const user = await db.user.update({
     where: { id: userId },
     data: { points: { increment: delta } },
   });
 
   const clampedPoints = Math.max(0, user.points);
   if (clampedPoints !== user.points) {
-    await prisma.user.update({ where: { id: userId }, data: { points: clampedPoints } });
+    await db.user.update({ where: { id: userId }, data: { points: clampedPoints } });
   }
 
-  const newCeiling = await computeCeiling(clampedPoints, user.isPremium);
+  const newCeiling = await computeCeiling(clampedPoints, user.isPremium, db);
   if (newCeiling !== user.ceiling) {
-    await prisma.user.update({ where: { id: userId }, data: { ceiling: newCeiling } });
+    await db.user.update({ where: { id: userId }, data: { ceiling: newCeiling } });
   }
 
   return { points: clampedPoints, ceiling: newCeiling, reason };

@@ -3,9 +3,9 @@ import { effectivePoints, tierCeilingFor } from "../finance/rules";
 
 export { effectivePoints };
 
-export async function computeCeiling(points: number, isPremium = false): Promise<number> {
-  const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
-  const tiers = await prisma.ceilingTier.findMany({ select: { minPoints: true, ceiling: true } });
+export async function computeCeiling(points: number, isPremium = false, db: any = prisma): Promise<number> {
+  const settings = await db.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
+  const tiers = await db.ceilingTier.findMany({ select: { minPoints: true, ceiling: true } });
   return tierCeilingFor(effectivePoints(points, isPremium, settings.freePointsCap), tiers);
 }
 

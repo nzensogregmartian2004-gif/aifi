@@ -1,4 +1,5 @@
 import { AMOUNT_EPSILON, isSettled } from "../finance/rules";
+import { withSerializationRetry } from "../../db/retry";
 import { AppError } from "../../errors";
 import { assertOwnUpload } from "../uploads/upload-ownership";
 import { prisma } from "../../db/client";
@@ -19,8 +20,9 @@ export async function getRemainingAmount(aidRequestId: string): Promise<number> 
 export async function recordRepayment(aidRequestId: string, amount: number, adminId?: string, proofImageUrl?: string) {
   // Transaction pour éviter une course entre deux remboursements enregistrés en même temps
   let result;
+  let streakNotice: { streak: number; points: number } | null = null;
   try {
-  result = await prisma.$transaction(async (tx) => {
+  result = await withSerializationRetry(() => prisma.$transaction(async (tx) => {
     const aidRequest = await tx.aidRequest.findUniqueOrThrow({
       where: { id: aidRequestId },
       include: { repayments: true },
@@ -71,7 +73,7 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
       });
 
       if (wasOnTime) {
-        await addPoints(aidRequest.userId, 10, "remboursement_a_temps");
+        await addPoints(aidRequest.userId, 10, "remboursement_a_temps", tx);
 
         // Série : un bonus tous les N remboursements à temps d'affilée (paramètres admin).
         const settings = await tx.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
@@ -81,12 +83,8 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
           select: { onTimeStreak: true },
         });
         if (settings.streakLength > 0 && onTimeStreak % settings.streakLength === 0) {
-          await addPoints(aidRequest.userId, settings.streakBonusPoints, "serie_remboursements");
-          await notifyUser(
-            aidRequest.userId,
-            "streak_bonus",
-            { streak: settings.streakLength, points: settings.streakBonusPoints }
-          );
+          await addPoints(aidRequest.userId, settings.streakBonusPoints, "serie_remboursements", tx);
+          streakNotice = { streak: settings.streakLength, points: settings.streakBonusPoints };
         }
       } else {
         // Un retard casse la série.
@@ -95,7 +93,7 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
     }
 
     return { remainingAfter, isPartial, fullyRepaid: isSettled(remainingAfter), userId: aidRequest.userId };
-  }, { isolationLevel: "Serializable" });
+  }, { isolationLevel: "Serializable" }));
   } catch (err: any) {
     if (err?.code === "P2034") {
       throw new AppError("CONCURRENT_OPERATION", "Un autre remboursement est en cours sur cette aide. Réessaie dans un instant.");
@@ -106,6 +104,9 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
   // Après commit : une erreur de journal ou de notification ne doit JAMAIS annuler ni rejouer
   // l'enregistrement (un rejeu compterait un remboursement partiel deux fois).
   try {
+    if (streakNotice) {
+      await notifyUser(result.userId, "streak_bonus", streakNotice);
+    }
     if (adminId) {
       await logAction({
         adminId,

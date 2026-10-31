@@ -1,4 +1,5 @@
 import { AppError } from "../../errors";
+import { withSerializationRetry } from "../../db/retry";
 import { availableCeiling, assertDueChoice, flexibleAmountDue, dueDateChoiceRange } from "../finance/rules";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../../db/client";
@@ -129,7 +130,7 @@ export async function requestAid(
   // deux demandes simultanées ne peuvent plus lire le même plafond libre.
   let request;
   try {
-    request = await prisma.$transaction(
+    request = await withSerializationRetry(() => prisma.$transaction(
       async (tx) => {
         const available = await computeAvailableCeiling(tx, userId);
         if (amount > available) {
@@ -155,7 +156,7 @@ export async function requestAid(
         });
       },
       { isolationLevel: "Serializable" }
-    );
+    ));
   } catch (err: any) {
     if (err?.code === "P2034") {
       throw new AppError("CONCURRENT_OPERATION", "Une autre demande est en cours de traitement. Réessaie dans un instant.");
