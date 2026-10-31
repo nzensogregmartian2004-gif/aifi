@@ -16,7 +16,8 @@ import { acceptAidRequest, rejectAidRequest, disburseAidRequest, disburseAidRequ
 import { suspendUser, reactivateUser, updateUserInfo, anonymizeUser } from "../modules/users/admin-user.service";
 import { adminResetPassword } from "../modules/users/auth.controller";
 import { createAdmin, listAdmins, listAdminAudit, setSuperAdmin, setAdminStatus, resetAdminPassword } from "../modules/admins/admin-team.service";
-import { adminSuperSchema, adminStatusSchema } from "../validation/schemas";
+import { adminSuperSchema, adminStatusSchema, confirmPaymentSchema, rejectPaymentSchema } from "../validation/schemas";
+import { confirmPaymentManually, rejectPaymentManually } from "../modules/payments/payment.service";
 import { notifyUser } from "../modules/notifications/notification.service";
 import { logAction, listAuditLogs } from "../modules/audit/audit.service";
 import { sendAdminMessage, getThread, markThreadRead, listConversationsForAdmin } from "../modules/messages/message.service";
@@ -49,6 +50,31 @@ const router = Router();
 router.use(requireAuth, requireAdmin);
 
 router.use("/settings", settingsRouter);
+
+router.get("/payments/pending", async (_req, res) => {
+  const items = await prisma.paymentTransaction.findMany({
+    where: { status: "PENDING" },
+    include: { user: { select: { name: true, phone: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  res.json(items);
+});
+
+router.post("/payments/:id/confirm", validateBody(confirmPaymentSchema), async (req, res) => {
+  try {
+    res.json(await confirmPaymentManually(req.params.id as string, req.auth!.userId, req.body.providerReference));
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+router.post("/payments/:id/reject", validateBody(rejectPaymentSchema), async (req, res) => {
+  try {
+    res.json(await rejectPaymentManually(req.params.id as string, req.auth!.userId, req.body.reason));
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
 
 router.get("/admins", async (_req, res) => {
   res.json(await listAdmins());

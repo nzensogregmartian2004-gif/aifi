@@ -302,3 +302,44 @@ export async function handleMypvitCallback(
   });
   return { alreadyProcessed: !applied, unknown: false };
 }
+
+/**
+ * Confirmation manuelle d'un paiement resté en attente (argent débité chez l'opérateur mais
+ * callback ou vérification automatique indisponibles). Passe par le même chemin atomique que
+ * le callback : le remboursement n'est enregistré qu'une seule fois, même en cas de double clic
+ * ou si le callback arrive plus tard.
+ */
+export async function confirmPaymentManually(transactionId: string, adminId: string, providerReference: string) {
+  const tx = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
+  if (!tx) throw new AppError("NOT_FOUND", "Transaction introuvable");
+  const applied = await settleTransaction(tx, "SUCCESS", { providerTransactionId: providerReference });
+  if (!applied) throw new AppError("ALREADY_PROCESSED", "Cette transaction est déjà traitée.");
+  await prisma.auditLog.create({
+    data: {
+      adminId,
+      action: "payment_confirmed_manually",
+      entityType: "PaymentTransaction",
+      entityId: tx.id,
+      after: { reference: tx.reference, providerReference, amount: tx.amount, purpose: tx.purpose } as any,
+    },
+  });
+  return { success: true };
+}
+
+/** Rejet manuel : à utiliser seulement si l'argent n'a pas été débité chez l'opérateur. */
+export async function rejectPaymentManually(transactionId: string, adminId: string, reason?: string) {
+  const tx = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
+  if (!tx) throw new AppError("NOT_FOUND", "Transaction introuvable");
+  const applied = await settleTransaction(tx, "FAILED", {});
+  if (!applied) throw new AppError("ALREADY_PROCESSED", "Cette transaction est déjà traitée.");
+  await prisma.auditLog.create({
+    data: {
+      adminId,
+      action: "payment_rejected_manually",
+      entityType: "PaymentTransaction",
+      entityId: tx.id,
+      after: { reference: tx.reference, reason: reason ?? null, amount: tx.amount } as any,
+    },
+  });
+  return { success: true };
+}

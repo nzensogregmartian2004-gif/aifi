@@ -45,6 +45,9 @@ export const adminCreateUserSchema = z.object({
   password,
 });
 
+export const confirmPaymentSchema = z.object({ providerReference: z.string().trim().min(3).max(100) });
+export const rejectPaymentSchema = z.object({ reason: z.string().trim().max(200).optional() });
+
 export const adminSuperSchema = z.object({ isSuperAdmin: z.boolean() });
 export const adminStatusSchema = z.object({ status: z.enum(["ACTIVE", "SUSPENDED"]) });
 
