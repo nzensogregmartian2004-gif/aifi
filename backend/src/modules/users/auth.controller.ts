@@ -22,27 +22,40 @@ export class AuthError extends Error {
   }
 }
 
-// Verrouillage par numéro de téléphone : protège même contre une attaque distribuée
-// sur plusieurs IP. Stocké en base : un redémarrage du serveur ne remet pas à zéro.
+/**
+ * Message unique pour tout échec d'inscription (numéro déjà utilisé, code de parrainage
+ * inconnu, etc.) : il ne révèle pas si un numéro est déjà client.
+ */
+const REGISTRATION_FAILED_MESSAGE =
+  "Inscription impossible avec ces informations. Si tu as déjà un compte, connecte-toi ; sinon contacte le support.";
+
+// Verrouillage des tentatives de connexion, par couple (numéro, IP).
+// Avant, la clé était le numéro seul : un tiers pouvait bloquer le compte d'un client
+// en échouant 5 fois depuis n'importe où. Avec le couple, un échec venant d'une autre
+// IP ne touche pas le vrai client. Stocké en base : un redémarrage ne remet pas à zéro.
 const MAX_ATTEMPTS = 5;
 const LOCK_WINDOW_MS = 15 * 60 * 1000;
 
-async function checkLock(phone: string) {
-  const entry = await prisma.loginAttempt.findUnique({ where: { phone } });
+function attemptKey(phone: string, ip: string) {
+  return { phone_ip: { phone, ip } };
+}
+
+async function checkLock(phone: string, ip: string) {
+  const entry = await prisma.loginAttempt.findUnique({ where: attemptKey(phone, ip) });
   if (entry?.lockedUntil && entry.lockedUntil.getTime() > Date.now()) {
     const minutes = Math.ceil((entry.lockedUntil.getTime() - Date.now()) / 60000);
     throw new AuthError("LOCKED", `Trop de tentatives échouées. Réessaie dans ${minutes} min.`, { minutes });
   }
 }
 
-async function registerFailedAttempt(phone: string) {
+async function registerFailedAttempt(phone: string, ip: string) {
   const now = new Date();
-  const entry = await prisma.loginAttempt.findUnique({ where: { phone } });
+  const entry = await prisma.loginAttempt.findUnique({ where: attemptKey(phone, ip) });
 
   if (!entry || now.getTime() - entry.firstAttemptAt.getTime() > LOCK_WINDOW_MS) {
     await prisma.loginAttempt.upsert({
-      where: { phone },
-      create: { phone, count: 1, firstAttemptAt: now, lockedUntil: null },
+      where: attemptKey(phone, ip),
+      create: { phone, ip, count: 1, firstAttemptAt: now, lockedUntil: null },
       update: { count: 1, firstAttemptAt: now, lockedUntil: null },
     });
     return;
@@ -50,7 +63,7 @@ async function registerFailedAttempt(phone: string) {
 
   const count = entry.count + 1;
   await prisma.loginAttempt.update({
-    where: { phone },
+    where: attemptKey(phone, ip),
     data: {
       count,
       lockedUntil: count >= MAX_ATTEMPTS ? new Date(now.getTime() + LOCK_WINDOW_MS) : entry.lockedUntil,
@@ -58,8 +71,8 @@ async function registerFailedAttempt(phone: string) {
   });
 }
 
-async function clearAttempts(phone: string) {
-  await prisma.loginAttempt.deleteMany({ where: { phone } });
+async function clearAttempts(phone: string, ip: string) {
+  await prisma.loginAttempt.deleteMany({ where: { phone, ip } });
 }
 
 /** Supprime les compteurs de plus de 24 h (appelé par le planificateur). */
@@ -87,9 +100,16 @@ export async function register(name: string, phone: string, password: string, re
     code = generateReferralCode(); // évite une collision improbable mais possible
   }
 
-  const user = await prisma.user.create({
-    data: { name, phone, passwordHash, referralCode: code, referredById },
-  });
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: { name, phone, passwordHash, referralCode: code, referredById },
+    });
+  } catch (err: any) {
+    // Numéro déjà inscrit (contrainte unique) : réponse identique à un autre échec.
+    if (err?.code === "P2002") throw new AuthError("REGISTRATION_FAILED", REGISTRATION_FAILED_MESSAGE);
+    throw err;
+  }
 
   await sendWelcomeMessage(user.id);
 
@@ -135,29 +155,33 @@ function phoneCandidates(phone: string): string[] {
   return [...set];
 }
 
-export async function login(phone: string, password: string) {
-  await checkLock(phone);
+/**
+ * Connexion. `ip` est l'adresse réelle de l'appelant (fournie par la route) :
+ * elle entre dans la clé du verrou de tentatives.
+ */
+export async function login(phone: string, password: string, ip: string) {
+  await checkLock(phone, ip);
 
   // Tolère les anciens formats encore stockés (+241…, 00241…, 241…) tant que la
   // migration de normalisation n'a pas touché tous les comptes.
   const user = await prisma.user.findFirst({ where: { phone: { in: phoneCandidates(phone) } } });
   if (!user) {
-    await registerFailedAttempt(phone);
+    await registerFailedAttempt(phone, ip);
     throw new AuthError("INVALID_CREDENTIALS", "Numéro ou mot de passe incorrect");
   }
 
   if (user.anonymizedAt) {
-    await registerFailedAttempt(phone);
+    await registerFailedAttempt(phone, ip);
     throw new AuthError("INVALID_CREDENTIALS", "Numéro ou mot de passe incorrect");
   }
 
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
-    await registerFailedAttempt(phone);
+    await registerFailedAttempt(phone, ip);
     throw new AuthError("INVALID_CREDENTIALS", "Numéro ou mot de passe incorrect");
   }
 
-  await clearAttempts(phone);
+  await clearAttempts(phone, ip);
 
   // Un compte PENDING peut désormais se connecter (accès restreint géré côté
   // client + côté demande d'aide), pour que le client voie tout de suite son
@@ -171,6 +195,16 @@ export async function login(phone: string, password: string) {
     token,
     user: { id: user.id, name: user.name, role: user.role, status: user.status, isSuperAdmin: user.isSuperAdmin },
   };
+}
+
+/**
+ * Déconnexion : incrémente tokenVersion, ce qui invalide tous les tokens de
+ * l'utilisateur, y compris ceux des autres appareils. Le client efface son token
+ * local dans tous les cas ; cet appel empêche seulement sa réutilisation.
+ */
+export async function logout(userId: string) {
+  await prisma.user.update({ where: { id: userId }, data: { tokenVersion: { increment: 1 } } });
+  return { success: true };
 }
 
 export async function changePassword(userId: string, currentPassword: string, newPassword: string) {

@@ -2,7 +2,7 @@ import { AppError } from "../../errors";
 import { prisma } from "../../db/client";
 import { initiatePayment, generatePaymentReference, checkTransactionStatus } from "./mypvit.client";
 import { recordRepayment, getRemainingAmount } from "../repayments/repayment.service";
-import { notifyUser } from "../notifications/notification.service";
+import { notifyUser, notifyAdmins } from "../notifications/notification.service";
 import { OperatorCode } from "../../config/env";
 import { recomputeCeilingForUser } from "../points/points.service";
 import type { PaymentTransaction } from "@prisma/client";
@@ -211,7 +211,7 @@ async function settleTransaction(
       if (tx.purpose === "PREMIUM_SUBSCRIPTION") {
         await activatePremiumSubscription(tx.userId);
       } else if (tx.aidRequestId) {
-        await recordRepayment(tx.aidRequestId, tx.amount);
+        await settleRepaymentPayment(tx);
       }
     } else {
       await notifyUser(tx.userId, tx.purpose === "PREMIUM_SUBSCRIPTION" ? "payment_failed_premium" : "payment_failed_repayment", {});
@@ -226,6 +226,53 @@ async function settleTransaction(
     throw err;
   }
   return true;
+}
+
+/**
+ * Impute un remboursement réussi chez l'opérateur. Si le reste dû a diminué entre
+ * l'initiation du paiement et son callback (autre paiement simultané), on impute ce
+ * qui reste dû ; le surplus est versé sur le portefeuille du client, qui le récupère
+ * ensuite par un retrait approuvé par un admin.
+ *
+ * Tant que rien n'est enregistré, une erreur fait revenir la transaction en PENDING
+ * (voir settleTransaction). Une fois le remboursement enregistré, on ne remonte plus
+ * d'erreur : un rejeu compterait le même paiement deux fois.
+ */
+async function settleRepaymentPayment(tx: PaymentTransaction) {
+  const aidRequestId = tx.aidRequestId as string;
+  let surplus = 0;
+  try {
+    await recordRepayment(aidRequestId, tx.amount);
+  } catch (err: any) {
+    if (!(err instanceof AppError) || err.code !== "REPAYMENT_EXCEEDS_DUE") throw err;
+    const remaining = Math.max(0, Math.floor(Number(err.params?.remaining ?? 0)));
+    if (remaining > 0) await recordRepayment(aidRequestId, remaining);
+    surplus = tx.amount - remaining;
+  }
+  if (surplus > 0) await creditRepaymentSurplus(tx, surplus);
+}
+
+/** Verse le trop-perçu sur le portefeuille du client et prévient le client et les admins. */
+async function creditRepaymentSurplus(tx: PaymentTransaction, surplus: number) {
+  // Aucune erreur ne doit remonter ici : le remboursement est déjà enregistré.
+  const user = await prisma.user.findUnique({ where: { id: tx.userId }, select: { name: true } }).catch(() => null);
+  try {
+    await prisma.walletEntry.create({
+      data: { userId: tx.userId, amount: surplus, reason: "repayment_surplus" },
+    });
+  } catch (err) {
+    // Le remboursement est déjà enregistré : impossible de relancer la transaction.
+    // Le trop-perçu doit être régularisé à la main, on le signale aux admins.
+    console.error(`[repayment] trop-perçu NON crédité : ${tx.reference}, ${surplus} FCFA, client ${tx.userId}`, err);
+    await notifyAdmins("admin_repayment_surplus_failed", {
+      name: user?.name ?? "", amount: tx.amount, surplus, reference: tx.reference,
+    }).catch(() => {});
+    return;
+  }
+  await notifyUser(tx.userId, "repayment_surplus", { amount: tx.amount, surplus }).catch(() => {});
+  await notifyAdmins("admin_repayment_surplus", {
+    name: user?.name ?? "", amount: tx.amount, surplus, reference: tx.reference,
+  }).catch(() => {});
 }
 
 /**

@@ -117,27 +117,36 @@ export async function approveWithdrawal(withdrawalId: string, adminId: string, p
   return result;
 }
 
+const OPERATOR_LABEL: Record<string, string> = { AIRTEL_MONEY: "Airtel Money", MOOV_MONEY: "Moov Money" };
+
 /**
- * Approuve et envoie un retrait automatiquement via MyPVit (GIVE_CHANGE,
- * synchrone). En cas d'échec, le retrait reste PENDING — l'admin peut
- * réessayer ou basculer sur l'envoi manuel (approveWithdrawal ci-dessus).
+ * Envoi automatique d'un retrait via MyPVit (GIVE_CHANGE).
  *
- * Verrous (deux problèmes distincts, deux protections) :
- *  1. Double traitement DU MÊME retrait (double-clic, deux admins) : verrouillé
- *     par un updateMany atomique PENDING -> APPROVING, comme pour le
- *     décaissement (voir aid-request.service.ts).
- *  2. Deux retraits DIFFÉRENTS du même utilisateur envoyés en vrai parallèle,
- *     qui dépasseraient ensemble le solde disponible : on débite le
- *     portefeuille tout de suite en même temps qu'on pose le verrou APPROVING
- *     (avant même d'appeler MyPVit), en isolation "Serializable". Comme ça,
- *     le solde reflète immédiatement l'argent "engagé", et la deuxième
- *     tentative concurrente voit un solde insuffisant au lieu de passer en
- *     même temps que la première. Si l'appel MyPVit échoue ensuite, on
- *     rembourse (écriture de portefeuille compensatoire) et on repasse le
- *     retrait en PENDING pour permettre une nouvelle tentative.
+ * Règle centrale : on ne rembourse JAMAIS le portefeuille sur un résultat incertain.
+ * Une erreur réseau, un timeout ou un statut PENDING ne prouvent pas que l'argent n'est pas
+ * parti : rembourser puis relancer pourrait donc payer deux fois. Dans ces cas, le retrait
+ * passe en APPROVING (« envoi incertain »). Rien n'est relancé automatiquement : un
+ * administrateur tranche après vérification chez MyPVit (voir resolveUncertainWithdrawal).
+ *
+ * Seul un refus explicite de MyPVit (statut FAILED) annule l'envoi et rembourse le client.
+ *
+ * Déroulé :
+ *  1. Une transaction Serializable fait passer le retrait de PENDING à APPROVING, enregistre
+ *     la référence de cet envoi et débite le portefeuille. Un second clic ou un second admin
+ *     échoue sur ce verrou.
+ *  2. L'appel GIVE_CHANGE part avec cette référence, propre à cet envoi.
  */
 export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: string) {
-  const withdrawal = await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId }, include: { user: true } });
+  const withdrawal = await prisma.withdrawal.findUniqueOrThrow({
+    where: { id: withdrawalId },
+    include: { user: true },
+  });
+  if (withdrawal.status === "APPROVING") {
+    throw new AppError(
+      "PAYOUT_UNCERTAIN",
+      "Un envoi est déjà en cours ou son résultat n'est pas confirmé. Vérifie-le chez MyPVit, puis résous le retrait sans relancer l'envoi."
+    );
+  }
   if (withdrawal.status !== "PENDING") {
     throw new AppError("ALREADY_PROCESSED", `Ce retrait a déjà été traité (statut actuel : ${withdrawal.status})`);
   }
@@ -145,18 +154,25 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
     throw new AppError("NO_RECEIVING_INFO", "Ce retrait n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
   }
 
+  const operatorCode = withdrawal.receivingOperator as "AIRTEL_MONEY" | "MOOV_MONEY";
+  const reference = generateDisbursementReference();
+
   try {
     await prisma.$transaction(
       async (tx) => {
         const entries = await tx.walletEntry.findMany({ where: { userId: withdrawal.userId } });
         const balance = entries.reduce((sum, e) => sum + e.amount, 0);
         if (withdrawal.amount > balance) {
-          throw new AppError("INSUFFICIENT_BALANCE", `Solde insuffisant (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA).`, { requested: withdrawal.amount, available: balance });
+          throw new AppError(
+            "INSUFFICIENT_BALANCE",
+            `Solde insuffisant (demandé : ${withdrawal.amount} FCFA, disponible : ${balance} FCFA).`,
+            { requested: withdrawal.amount, available: balance }
+          );
         }
 
         const locked = await tx.withdrawal.updateMany({
           where: { id: withdrawalId, status: "PENDING" },
-          data: { status: "APPROVING" },
+          data: { status: "APPROVING", payoutReference: reference },
         });
         if (locked.count === 0) {
           throw new AppError("DISBURSE_IN_PROGRESS", "Ce retrait est déjà en cours ou a déjà été traité par quelqu'un d'autre.");
@@ -175,29 +191,6 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
     throw err;
   }
 
-  const operatorCode = withdrawal.receivingOperator as "AIRTEL_MONEY" | "MOOV_MONEY";
-  const reference = generateDisbursementReference();
-  const transaction = await prisma.paymentTransaction.create({
-    data: {
-      reference,
-      userId: withdrawal.userId,
-      amount: withdrawal.amount,
-      operator: operatorCode,
-      status: "PENDING",
-    },
-  });
-
-  // Repasse le retrait en PENDING et rembourse le débit déjà posé ci-dessus,
-  // pour qu'un échec MyPVit ne laisse jamais le solde amputé pour rien.
-  async function releaseReservation(reason: string) {
-    await prisma.$transaction([
-      prisma.withdrawal.update({ where: { id: withdrawalId }, data: { status: "PENDING" } }),
-      prisma.walletEntry.create({
-        data: { userId: withdrawal.userId, amount: withdrawal.amount, reason },
-      }),
-    ]);
-  }
-
   let result;
   try {
     result = await giveChange({
@@ -208,29 +201,34 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
       freeInfo: "AIFI",
     });
   } catch (err: any) {
-    await prisma.paymentTransaction.update({
-      where: { id: transaction.id },
-      data: { status: "FAILED", rawInitResponse: { error: err.message } },
-    });
-    await releaseReservation("withdrawal_retry_after_error");
-    throw new AppError("PAYOUT_FAILED", `Le retrait automatique a échoué : ${err.message}`);
+    // Résultat inconnu : on ne rembourse pas et on ne relance pas.
+    await notifyPayoutUncertain(withdrawal.user.name, withdrawal.amount, reference);
+    throw new AppError(
+      "PAYOUT_UNCERTAIN",
+      `Envoi non confirmé (${err?.message ?? "erreur inconnue"}). Vérifie chez MyPVit avec la référence ${reference}, puis résous le retrait sans relancer l'envoi.`,
+      { reference }
+    );
   }
 
-  const success = result.status === "SUCCESS";
-  await prisma.paymentTransaction.update({
-    where: { id: transaction.id },
-    data: { status: success ? "SUCCESS" : "FAILED", providerTransactionId: result.reference_id, rawInitResponse: result as any },
-  });
+  const status = String(result.status ?? "").toUpperCase();
 
-  if (!success) {
-    await releaseReservation("withdrawal_retry_after_rejection");
+  if (status === "FAILED") {
+    // Refus explicite de MyPVit : l'argent n'est pas parti. Remboursement, retrait de nouveau en attente.
+    await releasePayoutReservation(withdrawalId, "withdrawal_not_sent");
     throw new AppError("PAYOUT_FAILED", result.message || "Le retrait a été refusé par l'opérateur.");
   }
 
-  const updated = await prisma.withdrawal.update({
-    where: { id: withdrawalId },
-    data: { status: "APPROVED" },
-  });
+  if (status !== "SUCCESS") {
+    // PENDING ou réponse non reconnue : MyPVit n'a pas tranché, on ne sait pas si l'argent est parti.
+    await notifyPayoutUncertain(withdrawal.user.name, withdrawal.amount, reference);
+    throw new AppError(
+      "PAYOUT_UNCERTAIN",
+      `MyPVit n'a pas confirmé l'envoi (statut : ${status || "inconnu"}). Vérifie chez MyPVit avec la référence ${reference}, puis résous le retrait sans relancer l'envoi.`,
+      { reference }
+    );
+  }
+
+  const updated = await markPayoutSent(withdrawalId);
 
   await logAction({
     adminId,
@@ -241,13 +239,102 @@ export async function approveWithdrawalViaMypvit(withdrawalId: string, adminId: 
     after: { status: "APPROVED", amount: updated.amount, reference, operator: operatorCode },
   });
 
-  await notifyUser(
-    updated.userId,
-    "withdrawal_approved_auto",
-    { amount: updated.amount, operator: operatorCode === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money" }
-  );
+  await notifyUser(updated.userId, "withdrawal_approved_auto", {
+    amount: updated.amount,
+    operator: OPERATOR_LABEL[operatorCode] ?? "",
+  });
 
   return updated;
+}
+
+async function notifyPayoutUncertain(name: string, amount: number, reference: string) {
+  await notifyAdmins("admin_payout_uncertain", { name, amount, reference }).catch(() => {});
+}
+
+/** APPROVING -> APPROVED : l'envoi est confirmé. */
+async function markPayoutSent(withdrawalId: string) {
+  const locked = await prisma.withdrawal.updateMany({
+    where: { id: withdrawalId, status: "APPROVING" },
+    data: { status: "APPROVED" },
+  });
+  if (locked.count === 0) {
+    throw new AppError("ALREADY_PROCESSED", "Ce retrait n'est plus en envoi incertain.");
+  }
+  return prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+}
+
+/** APPROVING -> PENDING et remboursement du portefeuille : l'envoi n'a pas eu lieu. */
+async function releasePayoutReservation(withdrawalId: string, reason: string) {
+  await prisma.$transaction(
+    async (tx) => {
+      const withdrawal = await tx.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
+      const locked = await tx.withdrawal.updateMany({
+        where: { id: withdrawalId, status: "APPROVING" },
+        data: { status: "PENDING", payoutReference: null },
+      });
+      if (locked.count === 0) {
+        throw new AppError("ALREADY_PROCESSED", "Ce retrait n'est plus en envoi incertain.");
+      }
+      await tx.walletEntry.create({
+        data: { userId: withdrawal.userId, amount: withdrawal.amount, reason },
+      });
+    },
+    { isolationLevel: "Serializable" }
+  );
+}
+
+/**
+ * Résolution d'un envoi incertain par un administrateur, après vérification chez MyPVit
+ * (référence affichée dans l'écran du retrait). Aucune relance automatique. Le choix et la
+ * note de l'admin sont tracés dans le journal.
+ *  - PAID : l'argent est bien parti. Le retrait passe en APPROVED, sans nouveau débit.
+ *  - NOT_PAID : l'argent n'est pas parti. Le client est remboursé et le retrait repasse en
+ *    PENDING, pour un nouvel envoi avec une nouvelle référence.
+ */
+export async function resolveUncertainWithdrawal(
+  withdrawalId: string,
+  adminId: string,
+  outcome: "PAID" | "NOT_PAID",
+  note: string
+) {
+  const withdrawal = await prisma.withdrawal.findUniqueOrThrow({
+    where: { id: withdrawalId },
+    include: { user: true },
+  });
+  if (withdrawal.status !== "APPROVING") {
+    throw new AppError("ALREADY_PROCESSED", `Ce retrait n'est pas en envoi incertain (statut actuel : ${withdrawal.status})`);
+  }
+  const reference = withdrawal.payoutReference;
+
+  if (outcome === "PAID") {
+    const updated = await markPayoutSent(withdrawalId);
+    await logAction({
+      adminId,
+      action: "withdrawal_resolve_paid",
+      entityType: "Withdrawal",
+      entityId: withdrawalId,
+      before: { status: "APPROVING" },
+      after: { status: "APPROVED", reference },
+      note,
+    });
+    await notifyUser(updated.userId, "withdrawal_approved_auto", {
+      amount: updated.amount,
+      operator: OPERATOR_LABEL[withdrawal.receivingOperator ?? ""] ?? "",
+    });
+    return updated;
+  }
+
+  await releasePayoutReservation(withdrawalId, "withdrawal_not_sent");
+  await logAction({
+    adminId,
+    action: "withdrawal_resolve_not_sent",
+    entityType: "Withdrawal",
+    entityId: withdrawalId,
+    before: { status: "APPROVING" },
+    after: { status: "PENDING", reference },
+    note,
+  });
+  return prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawalId } });
 }
 
 export async function rejectWithdrawal(withdrawalId: string, adminId: string) {

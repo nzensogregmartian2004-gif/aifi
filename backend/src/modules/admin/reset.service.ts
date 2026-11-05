@@ -1,4 +1,5 @@
 import { prisma } from "../../db/client";
+import { purgeIdentityFiles } from "../users/identity-purge";
 
 /**
  * Supprime les données transactionnelles et de test (demandes d'aide,
@@ -11,6 +12,12 @@ import { prisma } from "../../db/client";
  * Tout est fait dans une seule transaction : soit tout part, soit rien ne bouge.
  */
 export async function resetAllTestData() {
+  // Pièces d'identité des clients supprimés d'abord (fichiers + fiches de vérification).
+  const clients = await prisma.user.findMany({ where: { role: "CLIENT" }, select: { id: true } });
+  for (const client of clients) {
+    await purgeIdentityFiles(client.id);
+  }
+
   const [
     messagesDeleted,
     repaymentsDeleted,

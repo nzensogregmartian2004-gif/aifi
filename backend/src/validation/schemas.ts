@@ -111,6 +111,11 @@ export const approveWithdrawalSchema = z.object({
   proofImageUrl: imageUrlPath, // obligatoire à l'approbation
 });
 
+export const resolveWithdrawalSchema = z.object({
+  outcome: z.enum(["PAID", "NOT_PAID"]),
+  note: z.string().trim().min(3).max(300), // justification tracée dans le journal
+});
+
 export const confirmDeclarationSchema = z.object({
   proofImageUrl: optionalImageUrl,
 });

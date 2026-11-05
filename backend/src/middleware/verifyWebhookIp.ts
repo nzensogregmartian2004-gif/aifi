@@ -1,20 +1,22 @@
 import { Request, Response, NextFunction } from "express";
 
 /**
- * Adresse réelle de l'appelant. Derrière Cloudflare, req.ip est l'IP du proxy, pas celle de
- * l'appelant. Cloudflare fournit l'IP réelle dans CF-Connecting-IP et la réécrit à chaque requête.
+ * Adresse réelle de l'appelant, telle que vue par le proxy de Render. Express est configuré
+ * avec trust proxy = 1 (app.ts) : il lit l'IP que le proxy ajoute à X-Forwarded-For, et le
+ * client ne peut pas écrire cette valeur.
+ *
+ * On n'utilise PAS CF-Connecting-IP : cet en-tête est envoyé par le client lui-même (pas de
+ * Cloudflare devant le serveur), et il permettait de contourner la liste blanche MyPVit et
+ * les limites de débit.
  */
 export function clientIp(req: Request): string {
-  const cf = req.headers["cf-connecting-ip"];
-  const raw = typeof cf === "string" && cf.trim() ? cf.trim() : (req.ip ?? "");
-  return raw.replace(/^::ffff:/, "");
+  return (req.ip ?? "").replace(/^::ffff:/, "");
 }
 
-/** Description de l'appelant pour les logs de refus : permet de voir ce que le serveur reçoit. */
+/** Description de l'appelant pour les logs de refus. */
 function describeCaller(req: Request): string {
-  const cf = req.headers["cf-connecting-ip"] ?? "-";
   const xff = req.headers["x-forwarded-for"] ?? "-";
-  return `ip=${clientIp(req)}, req.ip=${req.ip}, cf-connecting-ip=${cf}, x-forwarded-for=${xff}`;
+  return `ip=${clientIp(req)}, x-forwarded-for=${xff}`;
 }
 
 function allowedIps(): string[] {

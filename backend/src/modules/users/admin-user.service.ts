@@ -4,6 +4,7 @@ import { notifyUser } from "../notifications/notification.service";
 import { logAction } from "../audit/audit.service";
 import crypto from "crypto";
 import { assertPhoneAvailable } from "./phone-owner";
+import { purgeIdentityFiles } from "./identity-purge";
 
 interface UserUpdate {
   name?: string;
@@ -83,6 +84,16 @@ export async function anonymizeUser(id: string, adminId: string) {
     entityId: id,
     before: { name: user.name, phone: user.phone },
     note: "Anonymisation irréversible",
+  });
+
+  // Les pièces d'identité ne doivent pas survivre à l'anonymisation.
+  const deletedFiles = await purgeIdentityFiles(id);
+  await logAction({
+    adminId,
+    action: "user_identity_files_purged",
+    entityType: "User",
+    entityId: id,
+    note: `${deletedFiles} fichier(s) d'identité supprimé(s)`,
   });
 
   return updated;

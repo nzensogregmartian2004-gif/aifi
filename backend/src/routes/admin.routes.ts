@@ -10,7 +10,7 @@ import { addPoints, recomputeCeilingForUser } from "../modules/points/points.ser
 import { getUserRisk, getRiskOverview } from "../modules/risk/risk.service";
 import { listEntries, addManualEntry, removeEntry } from "../modules/blacklist/blacklist.service";
 import { creditWallet } from "../modules/wallet/wallet.service";
-import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal } from "../modules/wallet/withdrawal.service";
+import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal, resolveUncertainWithdrawal } from "../modules/wallet/withdrawal.service";
 import { getAdminDashboard } from "../modules/dashboard/admin-dashboard.service";
 import { acceptAidRequest, rejectAidRequest, disburseAidRequest, disburseAidRequestViaMypvit } from "../modules/aid-requests/aid-request.service";
 import { suspendUser, reactivateUser, updateUserInfo, anonymizeUser } from "../modules/users/admin-user.service";
@@ -42,6 +42,7 @@ import {
   confirmDeclarationSchema,
   rejectDeclarationSchema,
   approveWithdrawalSchema,
+  resolveWithdrawalSchema,
   sendMessageSchema,
 } from "../validation/schemas";
 
@@ -703,6 +704,17 @@ router.post("/withdrawals/:id/approve", validateBody(approveWithdrawalSchema), a
 router.post("/withdrawals/:id/approve-mypvit", async (req, res) => {
   try {
     const withdrawal = await approveWithdrawalViaMypvit((req.params.id as string), req.auth!.userId);
+    res.json(withdrawal);
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+// Envoi incertain (APPROVING) : l'admin a vérifié chez MyPVit et tranche.
+router.post("/withdrawals/:id/resolve", validateBody(resolveWithdrawalSchema), async (req, res) => {
+  try {
+    const { outcome, note } = req.body;
+    const withdrawal = await resolveUncertainWithdrawal((req.params.id as string), req.auth!.userId, outcome, note);
     res.json(withdrawal);
   } catch (err: any) {
     res.status(400).json(errorBody(err));
