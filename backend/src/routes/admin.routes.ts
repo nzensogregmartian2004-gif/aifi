@@ -11,6 +11,8 @@ import { getUserRisk, getRiskOverview } from "../modules/risk/risk.service";
 import { listEntries, addManualEntry, removeEntry } from "../modules/blacklist/blacklist.service";
 import { creditWallet } from "../modules/wallet/wallet.service";
 import { approveWithdrawal, approveWithdrawalViaMypvit, rejectWithdrawal, resolveUncertainWithdrawal } from "../modules/wallet/withdrawal.service";
+import { resolveUncertainAid } from "../modules/aid-requests/aid-request.service";
+import { validateAccount } from "../modules/users/account-validation.service";
 import { getAdminDashboard } from "../modules/dashboard/admin-dashboard.service";
 import { acceptAidRequest, rejectAidRequest, disburseAidRequest, disburseAidRequestViaMypvit } from "../modules/aid-requests/aid-request.service";
 import { suspendUser, reactivateUser, updateUserInfo, anonymizeUser } from "../modules/users/admin-user.service";
@@ -43,6 +45,7 @@ import {
   rejectDeclarationSchema,
   approveWithdrawalSchema,
   resolveWithdrawalSchema,
+  resolveAidSchema,
   sendMessageSchema,
 } from "../validation/schemas";
 
@@ -54,7 +57,7 @@ router.use("/settings", settingsRouter);
 
 router.get("/payments/pending", async (_req, res) => {
   const items = await prisma.paymentTransaction.findMany({
-    where: { status: "PENDING" },
+    where: { status: "PENDING", OR: [{ purpose: null }, { purpose: { not: "DISBURSEMENT" } }] },
     include: { user: { select: { name: true, phone: true } } },
     orderBy: { createdAt: "asc" },
   });
@@ -442,35 +445,8 @@ router.post("/users/:id/premium", async (req, res) => {
 
 router.post("/users/:id/validate", async (req, res) => {
   try {
-    const user = await prisma.user.update({
-      where: { id: (req.params.id as string) },
-      data: { status: "ACTIVE" },
-    });
-
-    await logAction({
-      adminId: req.auth!.userId,
-      action: "user_validate",
-      entityType: "User",
-      entityId: user.id,
-      before: { status: "PENDING" },
-      after: { status: "ACTIVE" },
-    });
-
-    await addPoints(user.id, 10, "validation_compte");
-
-    if (user.referredById) {
-      const settings = await prisma.appSettings.findUniqueOrThrow({ where: { id: "singleton" } });
-      await creditWallet(user.referredById, settings.referralBonus, "referral_bonus");
-      await addPoints(user.referredById, settings.referralPoints, "parrainage_valide");
-      await notifyUser(
-        user.referredById,
-        "referral_validated",
-        { name: user.name, bonus: settings.referralBonus, points: settings.referralPoints }
-      );
-    }
-
-    await notifyUser(user.id, "account_validated", {});
-
+    // Une seule source de vérité : validateAccount (garde atomique, bonus versé une seule fois).
+    const user = await validateAccount((req.params.id as string), req.auth!.userId);
     res.json(user);
   } catch (err: any) {
     res.status(400).json(errorBody(err));
@@ -588,6 +564,16 @@ router.post("/aid-requests/:id/disburse", async (req, res) => {
 
 router.get("/payments/config", async (_req, res) => {
   res.json({ available: isMypvitConfigured() });
+});
+
+// Décaissement incertain (DISBURSING) : l'admin a vérifié chez MyPVit et tranche.
+router.post("/aid-requests/:id/resolve", validateBody(resolveAidSchema), async (req, res) => {
+  try {
+    const { outcome, note } = req.body;
+    res.json(await resolveUncertainAid((req.params.id as string), req.auth!.userId, outcome, note));
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
 });
 
 router.post("/aid-requests/:id/disburse-mypvit", async (req, res) => {

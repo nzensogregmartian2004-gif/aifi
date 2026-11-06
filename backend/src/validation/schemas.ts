@@ -116,6 +116,11 @@ export const resolveWithdrawalSchema = z.object({
   note: z.string().trim().min(3).max(300), // justification tracée dans le journal
 });
 
+export const resolveAidSchema = z.object({
+  outcome: z.enum(["PAID", "NOT_PAID"]),
+  note: z.string().trim().min(3).max(300),
+});
+
 export const confirmDeclarationSchema = z.object({
   proofImageUrl: optionalImageUrl,
 });

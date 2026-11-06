@@ -19,7 +19,7 @@ export async function computeAvailableCeiling(db: Db, userId: string): Promise<n
   const user = await db.user.findUniqueOrThrow({ where: { id: userId } });
 
   const openRequests = await db.aidRequest.findMany({
-    where: { userId, status: { in: ["PENDING", "ACCEPTED", "DISBURSED", "LATE"] } },
+    where: { userId, status: { in: ["PENDING", "ACCEPTED", "DISBURSING", "DISBURSED", "LATE"] } },
     include: { repayments: true },
   });
 
@@ -300,12 +300,10 @@ export async function disburseAidRequest(id: string, adminId: string, note?: str
 }
 
 /**
- * Décaissement automatique via MyPVit (GIVE_CHANGE, synchrone : le statut
- * final est dans la réponse, pas besoin d'attendre un webhook). Envoie
- * toujours vers l'opérateur et le numéro choisis par le CLIENT lui-même à sa
- * demande (jamais un choix de l'admin). En cas d'échec, la demande reste
- * "ACCEPTED" — l'admin peut réessayer ou basculer sur l'envoi manuel
- * (disburseAidRequest ci-dessus).
+ * Décaissement MyPVit avec journal préalable et référence stable.
+ * La réservation (DISBURSING + PaymentTransaction PENDING) est atomique et
+ * validée AVANT l'appel réseau. Un timeout conserve l'état incertain : jamais
+ * de nouvel envoi automatique sur une réponse ambiguë.
  */
 export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
   const existing = await prisma.aidRequest.findUniqueOrThrow({ where: { id }, include: { user: true } });
@@ -316,83 +314,156 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
     throw new AppError("NO_RECEIVING_INFO", "Cette demande n'a pas d'opérateur/numéro de réception enregistré — utilise l'envoi manuel.");
   }
 
-  // Verrou atomique : ne fait passer ACCEPTED -> DISBURSING que pour UN seul
-  // appelant. Si deux admins (ou un double-clic / une requête réseau rejouée)
-  // déclenchent l'envoi en même temps, un seul obtient le verrou ; l'autre est
-  // rejeté avant même d'appeler MyPVit — ça évite un envoi d'argent en double.
-  const locked = await prisma.aidRequest.updateMany({
-    where: { id, status: "ACCEPTED" },
-    data: { status: "DISBURSING" },
-  });
-  if (locked.count === 0) {
-    throw new AppError("DISBURSE_IN_PROGRESS", "Ce décaissement est déjà en cours ou a déjà été traité par quelqu'un d'autre.");
-  }
-
+  const operator = existing.receivingOperator as "AIRTEL_MONEY" | "MOOV_MONEY";
   const reference = generateDisbursementReference();
-
-  const transaction = await prisma.paymentTransaction.create({
-    data: {
-      reference,
-      userId: existing.userId,
-      aidRequestId: existing.id,
-      amount: existing.amount,
-      operator: existing.receivingOperator,
-      status: "PENDING",
-    },
+  // Le statut et la transaction existent durablement avant tout effet externe.
+  await prisma.$transaction(async (tx) => {
+    const locked = await tx.aidRequest.updateMany({
+      where: { id, status: "ACCEPTED" },
+      data: { status: "DISBURSING", payoutReference: reference },
+    });
+    if (locked.count !== 1) {
+      throw new AppError("DISBURSE_IN_PROGRESS", "Ce décaissement est déjà en cours ou a déjà été traité.");
+    }
+    await tx.paymentTransaction.create({
+      data: {
+        reference, userId: existing.userId, aidRequestId: id,
+        amount: existing.amount, operator, status: "PENDING",
+        purpose: "DISBURSEMENT",
+      },
+    });
   });
 
-  let result;
+  const uncertain = (detail: string) => new AppError(
+    "PAYOUT_UNCERTAIN",
+    `${detail} Vérifie chez MyPVit avec la référence ${reference}. Ne relance pas automatiquement cet envoi.`,
+    { reference }
+  );
+
+  let result: Awaited<ReturnType<typeof giveChange>>;
   try {
     result = await giveChange({
       amount: existing.amount,
       phone: existing.receivingPhone,
       reference,
-      operatorCode: existing.receivingOperator as "AIRTEL_MONEY" | "MOOV_MONEY",
+      operatorCode: operator,
       freeInfo: "AIFI",
     });
   } catch (err: any) {
-    await prisma.paymentTransaction.update({
-      where: { id: transaction.id },
-      data: { status: "FAILED", rawInitResponse: { error: err.message } },
+    // L'appel a pu atteindre MyPVit avant la coupure : PENDING + DISBURSING restent réservés.
+    await notifyAdmins("admin_aid_payout_uncertain", {
+      name: existing.user.name, amount: existing.amount, reference,
+    }).catch(() => {});
+    throw uncertain(`Résultat réseau non confirmé (${err?.message ?? "erreur inconnue"}).`);
+  }
+
+  const providerStatus = String(result.status ?? "").toUpperCase();
+  if (providerStatus === "FAILED") {
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentTransaction.update({
+        where: { reference },
+        data: { status: "FAILED", providerTransactionId: result.reference_id ?? null, rawInitResponse: result as any },
+      });
+      const released = await tx.aidRequest.updateMany({
+        where: { id, status: "DISBURSING", payoutReference: reference },
+        data: { status: "ACCEPTED", payoutReference: null },
+      });
+      if (released.count !== 1) throw new AppError("PAYOUT_STATE_CONFLICT", "Le statut de la demande a changé pendant le décaissement.");
+      await logAction({
+        adminId, action: "aid_request_disburse_failed", entityType: "AidRequest", entityId: id,
+        before: { status: "DISBURSING" }, after: { status: "ACCEPTED", reference, providerStatus },
+      }, tx);
     });
-    // On relâche le verrou (retour à ACCEPTED) pour que l'admin puisse
-    // réessayer — sinon la demande resterait bloquée en DISBURSING pour
-    // toujours après un simple échec réseau.
-    await prisma.aidRequest.update({ where: { id }, data: { status: "ACCEPTED" } });
-    throw new AppError("PAYOUT_FAILED", `Le décaissement automatique a échoué : ${err.message}`);
+    throw new AppError("PAYOUT_FAILED", result.message || "Le décaissement a été explicitement refusé par MyPVit.");
   }
 
-  const success = result.status === "SUCCESS";
-  await prisma.paymentTransaction.update({
-    where: { id: transaction.id },
-    data: { status: success ? "SUCCESS" : "FAILED", providerTransactionId: result.reference_id, rawInitResponse: result as any },
-  });
-
-  if (!success) {
-    // Idem : refus net de l'opérateur, on relâche le verrou pour permettre
-    // une nouvelle tentative (ou un passage en envoi manuel).
-    await prisma.aidRequest.update({ where: { id }, data: { status: "ACCEPTED" } });
-    throw new AppError("PAYOUT_FAILED", result.message || "Le décaissement a été refusé par l'opérateur.");
+  if (providerStatus !== "SUCCESS") {
+    await notifyAdmins("admin_aid_payout_uncertain", {
+      name: existing.user.name, amount: existing.amount, reference,
+    }).catch(() => {});
+    throw uncertain(`MyPVit n'a pas confirmé l'envoi (statut : ${providerStatus || "inconnu"}).`);
   }
 
-  const request = await prisma.aidRequest.update({ where: { id }, data: { status: "DISBURSED" } });
-
-  await logAction({
-    adminId,
-    action: "aid_request_disburse_auto",
-    entityType: "AidRequest",
-    entityId: id,
-    before: { status: existing.status },
-    after: { status: request.status, reference, operator: existing.receivingOperator },
+  const request = await prisma.$transaction(async (tx) => {
+    const completed = await tx.aidRequest.updateMany({
+      where: { id, status: "DISBURSING", payoutReference: reference },
+      data: { status: "DISBURSED" },
+    });
+    if (completed.count !== 1) throw new AppError("PAYOUT_STATE_CONFLICT", "Le statut de la demande a changé pendant le décaissement.");
+    await tx.paymentTransaction.update({
+      where: { reference },
+      data: { status: "SUCCESS", providerTransactionId: result.reference_id ?? null, rawInitResponse: result as any },
+    });
+    await logAction({
+      adminId, action: "aid_request_disburse_auto", entityType: "AidRequest", entityId: id,
+      before: { status: "ACCEPTED" }, after: { status: "DISBURSED", reference, operator },
+    }, tx);
+    return tx.aidRequest.findUniqueOrThrow({ where: { id } });
   });
 
-  await notifyUser(
-    request.userId,
-    "aid_request_disbursed_auto",
-    { amount: request.amount, operator: existing.receivingOperator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money" },
-    request.id
-  );
-
+  await notifyUser(request.userId, "aid_request_disbursed_auto", {
+    amount: request.amount, operator: operator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money",
+  }, request.id);
   return request;
 }
 
+/**
+ * Résolution manuelle d'un envoi incertain après vérification du relevé MyPVit.
+ * Met à jour la transaction préalable au lieu d'en créer une seconde.
+ */
+export async function resolveUncertainAid(id: string, adminId: string, outcome: "PAID" | "NOT_PAID", note: string) {
+  const aid = await prisma.aidRequest.findUniqueOrThrow({ where: { id }, include: { user: true } });
+  if (aid.status !== "DISBURSING") {
+    throw new AppError("ALREADY_PROCESSED", `Cette demande n'est pas en envoi incertain (statut actuel : ${aid.status})`);
+  }
+  if (!aid.payoutReference) throw new AppError("NO_PAYOUT_REFERENCE", "Aucune référence d'envoi enregistrée pour cette demande.");
+  const reference = aid.payoutReference;
+  const operator = aid.receivingOperator ?? "";
+
+  await prisma.$transaction(async (tx) => {
+    const changed = await tx.aidRequest.updateMany({
+      where: { id, status: "DISBURSING", payoutReference: reference },
+      data: outcome === "PAID"
+        ? { status: "DISBURSED" }
+        : { status: "ACCEPTED", payoutReference: null },
+    });
+    if (changed.count !== 1) throw new AppError("ALREADY_PROCESSED", "Cette demande vient d'être résolue par un autre administrateur.");
+
+    const transaction = await tx.paymentTransaction.findUnique({ where: { reference } });
+    if (transaction) {
+      await tx.paymentTransaction.update({
+        where: { reference },
+        data: {
+          status: outcome === "PAID" ? "SUCCESS" : "FAILED",
+          rawInitResponse: { resolvedBy: adminId, note, outcome } as any,
+        },
+      });
+    } else {
+      // Compatibilité avec les demandes DISBURSING créées avant la V4.
+      await tx.paymentTransaction.create({
+        data: {
+          reference, userId: aid.userId, aidRequestId: id, amount: aid.amount, operator, purpose: "DISBURSEMENT",
+          status: outcome === "PAID" ? "SUCCESS" : "FAILED",
+          rawInitResponse: { resolvedBy: adminId, note, outcome, legacyRecovery: true } as any,
+        },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        adminId, action: outcome === "PAID" ? "aid_resolve_paid" : "aid_resolve_not_sent",
+        entityType: "AidRequest", entityId: id,
+        before: { status: "DISBURSING" },
+        after: { status: outcome === "PAID" ? "DISBURSED" : "ACCEPTED", reference },
+        note,
+      },
+    });
+  });
+
+  const request = await prisma.aidRequest.findUniqueOrThrow({ where: { id } });
+  if (outcome === "PAID") {
+    await notifyUser(aid.userId, "aid_request_disbursed_auto", {
+      amount: aid.amount, operator: operator === "AIRTEL_MONEY" ? "Airtel Money" : operator === "MOOV_MONEY" ? "Moov Money" : "",
+    }, id);
+  }
+  return request;
+}

@@ -200,6 +200,8 @@ async function settleTransaction(
   finalStatus: "SUCCESS" | "FAILED",
   extra: { rawCallback?: any; providerTransactionId?: string } = {}
 ): Promise<boolean> {
+  // Un décaissement n'est jamais réglé comme un remboursement : seul le résolveur admin le clôture.
+  if (tx.purpose === "DISBURSEMENT") return false;
   const claimed = await prisma.paymentTransaction.updateMany({
     where: { id: tx.id, status: "PENDING" },
     data: { status: finalStatus, ...extra },
@@ -282,6 +284,7 @@ async function creditRepaymentSurplus(tx: PaymentTransaction, surplus: number) {
 export async function attemptStatusRecovery(transactionId: string): Promise<"resolved" | "still_pending" | "unavailable"> {
   const transaction = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
   if (!transaction || transaction.status !== "PENDING") return "still_pending";
+  if (transaction.purpose === "DISBURSEMENT") return "still_pending";
 
   if (!transaction.providerTransactionId) return "still_pending";
   const status = await checkTransactionStatus(transaction.providerTransactionId, transaction.operator as OperatorCode);
@@ -318,6 +321,11 @@ export async function handleMypvitCallback(
   });
   if (!transaction) return { alreadyProcessed: false, unknown: true };
   if (transaction.status !== "PENDING") return { alreadyProcessed: true, unknown: false };
+  // Un décaissement ne se règle pas par callback : réponse neutre, sans effet.
+  if (transaction.purpose === "DISBURSEMENT") {
+    console.error(`[mypvit callback] décaissement ignoré pour ${transaction.reference}`);
+    return { alreadyProcessed: true, unknown: false };
+  }
 
   // Garde-fou : le montant annoncé doit correspondre au montant demandé.
   if (payload.amount !== transaction.amount) {
@@ -363,6 +371,9 @@ export async function handleMypvitCallback(
 export async function confirmPaymentManually(transactionId: string, adminId: string, providerReference: string) {
   const tx = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
   if (!tx) throw new AppError("NOT_FOUND", "Transaction introuvable");
+  if (tx.purpose === "DISBURSEMENT") {
+    throw new AppError("DISBURSEMENT_NOT_PAYMENT", "Ce décaissement ne se confirme pas comme un paiement : utilise le résolveur de décaissement.");
+  }
   const applied = await settleTransaction(tx, "SUCCESS", { providerTransactionId: providerReference });
   if (!applied) throw new AppError("ALREADY_PROCESSED", "Cette transaction est déjà traitée.");
   await prisma.auditLog.create({
@@ -381,6 +392,9 @@ export async function confirmPaymentManually(transactionId: string, adminId: str
 export async function rejectPaymentManually(transactionId: string, adminId: string, reason?: string) {
   const tx = await prisma.paymentTransaction.findUnique({ where: { id: transactionId } });
   if (!tx) throw new AppError("NOT_FOUND", "Transaction introuvable");
+  if (tx.purpose === "DISBURSEMENT") {
+    throw new AppError("DISBURSEMENT_NOT_PAYMENT", "Ce décaissement ne se rejette pas comme un paiement : utilise le résolveur de décaissement.");
+  }
   const applied = await settleTransaction(tx, "FAILED", {});
   if (!applied) throw new AppError("ALREADY_PROCESSED", "Cette transaction est déjà traitée.");
   await prisma.auditLog.create({

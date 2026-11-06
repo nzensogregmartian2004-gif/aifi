@@ -1,7 +1,7 @@
 import { prisma } from "../../db/client";
 
-export async function creditWallet(userId: string, amount: number, reason: string) {
-  return prisma.walletEntry.create({
+export async function creditWallet(userId: string, amount: number, reason: string, db: any = prisma) {
+  return db.walletEntry.create({
     data: { userId, amount, reason },
   });
 }

@@ -1,4 +1,5 @@
 import { prisma } from "../../db/client";
+import type { Prisma } from "@prisma/client";
 
 /**
  * Enregistre une action administrateur pour traçabilité.
@@ -13,9 +14,9 @@ export async function logAction(params: {
   before?: unknown;
   after?: unknown;
   note?: string;
-}) {
+}, db: Prisma.TransactionClient | typeof prisma = prisma) {
   const { adminId, action, entityType, entityId, before, after, note } = params;
-  return prisma.auditLog.create({
+  return db.auditLog.create({
     data: {
       adminId,
       action,

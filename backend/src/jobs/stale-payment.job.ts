@@ -12,7 +12,7 @@ export async function flagStalePayments() {
   const cutoff = new Date(Date.now() - STALE_AFTER_MS);
 
   const stale = await prisma.paymentTransaction.findMany({
-    where: { status: "PENDING", createdAt: { lt: cutoff }, staleNotifiedAt: null },
+    where: { status: "PENDING", createdAt: { lt: cutoff }, staleNotifiedAt: null, OR: [{ purpose: null }, { purpose: { not: "DISBURSEMENT" } }] },
     include: { user: true },
   });
 

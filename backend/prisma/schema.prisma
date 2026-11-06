@@ -126,6 +126,8 @@ model AidRequest {
   amount               Int
   amountDue            Int
   status               AidRequestStatus  @default(PENDING)
+  // Référence de l'envoi MyPVit en cours (DISBURSING) : sert à vérifier un envoi incertain.
+  payoutReference String? @unique
   dueDate              DateTime?
   durationDays         Int?
   durationTierAmount   Int?

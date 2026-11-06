@@ -52,6 +52,7 @@ export const TEMPLATES: Record<string, string> = {
   admin_repayment_surplus: "Trop-perçu : {name} a payé {amount} FCFA ({surplus} FCFA ajoutés à son portefeuille, réf {reference}).",
   admin_repayment_surplus_failed: "ATTENTION : trop-perçu de {surplus} FCFA non crédité pour {name} (paiement {amount} FCFA, réf {reference}). À régulariser à la main.",
   admin_payout_uncertain: "Envoi MyPVit incertain pour {name} ({amount} FCFA, réf {reference}). Vérifie chez MyPVit, puis résous le retrait dans l'app. Ne relance pas l'envoi.",
+  admin_aid_payout_uncertain: "Décaissement MyPVit incertain pour {name} ({amount} FCFA, réf {reference}). Vérifie chez MyPVit, puis résous la demande dans l'app. Ne relance pas l'envoi.",
 };
 
 export const SUPPORTED_LANGUAGES = ["fr", "en", "ar", "pt", "es"] as const;
