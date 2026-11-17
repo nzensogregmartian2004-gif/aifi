@@ -8,26 +8,42 @@ import { prisma } from "../../db/client";
  * l'utilisateur n'a pas de token, si le token n'est pas un token Expo valide,
  * ou si Expo est injoignable — la notification en-app reste toujours créée.
  */
-async function sendExpoPush(pushToken: string | null | undefined, title: string, body: string) {
+/**
+ * Envoie une notification push via l'API Expo.
+ *
+ * Expo répond HTTP 200 même quand l'envoi est refusé : il faut lire le ticket. Les causes
+ * fréquentes (identifiants FCM/APNs absents, token périmé) étaient avalées en silence.
+ * Un token qui n'existe plus sur l'appareil (DeviceNotRegistered) est effacé.
+ * La notification en-app reste toujours créée, quoi qu'il arrive.
+ */
+async function sendExpoPush(userId: string | null, pushToken: string | null | undefined, title: string, body: string) {
   if (!pushToken || !pushToken.startsWith("ExponentPushToken")) return;
 
   try {
-    await fetch("https://exp.host/--/api/v2/push/send", {
+    const res = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
         to: pushToken,
         title,
         body,
         sound: "default",
+        channelId: "default", // canal Android créé côté app (push.js)
+        priority: "high",     // livraison prioritaire, même app fermée
       }),
     });
+    const json: any = await res.json().catch(() => null);
+    const ticket = Array.isArray(json?.data) ? json.data[0] : json?.data;
+
+    if (!res.ok || ticket?.status !== "ok") {
+      const code = ticket?.details?.error ?? `HTTP ${res.status}`;
+      console.error(`[push] envoi refusé (${code}) pour l'utilisateur ${userId ?? "?"} : ${ticket?.message ?? ""}`);
+      if (code === "DeviceNotRegistered" && userId) {
+        await prisma.user.update({ where: { id: userId }, data: { pushToken: null } }).catch(() => {});
+      }
+    }
   } catch (err) {
-    // On ne bloque jamais une action métier à cause d'un échec d'envoi push
-    console.error("Échec envoi push Expo:", err);
+    console.error("[push] Expo injoignable :", err);
   }
 }
 
@@ -43,14 +59,14 @@ export async function notifyUser(
   // Le texte est écrit dans la langue du destinataire (en-app comme push)
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { pushToken: true, language: true },
+    select: { pushToken: true, language: true, pushEnabled: true },
   });
   const message = renderNotification(type, params, normalizeLang(user?.language));
   const notification = await prisma.notification.create({
     data: { userId, type, message, params: params as Prisma.InputJsonValue, aidRequestId },
   });
 
-  await sendExpoPush(user?.pushToken, "AIFI", message);
+  await sendExpoPush(userId, user?.pushEnabled ? user.pushToken : null, "AIFI", message);
 
   return notification;
 }
@@ -63,7 +79,7 @@ export async function notifyUser(
 export async function notifyAdmins(type: string, params: NotifParams = {}, aidRequestId?: string) {
   const admins = await prisma.user.findMany({
     where: { role: "ADMIN", status: "ACTIVE" },
-    select: { id: true, pushToken: true, language: true },
+    select: { id: true, pushToken: true, language: true, pushEnabled: true },
   });
 
   if (admins.length === 0) return;
@@ -79,7 +95,7 @@ export async function notifyAdmins(type: string, params: NotifParams = {}, aidRe
     })),
   });
 
-  await Promise.all(admins.map((a, i) => sendExpoPush(a.pushToken, "AIFI — action requise", messages[i])));
+  await Promise.all(admins.map((a, i) => sendExpoPush(a.id, a.pushEnabled ? a.pushToken : null, "AIFI — action requise", messages[i])));
 }
 
 export async function listNotifications(userId: string) {
@@ -111,4 +127,18 @@ export async function markAllRead(userId: string) {
 export async function savePushToken(userId: string, pushToken: string) {
   await prisma.user.update({ where: { id: userId }, data: { pushToken } });
   return { success: true };
+}
+
+/** Réglages de notifications de l'utilisateur (même route pour les clients et les admins). */
+export async function getNotificationSettings(userId: string) {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { pushEnabled: true, pushToken: true },
+  });
+  return { pushEnabled: user.pushEnabled, hasPushToken: !!user.pushToken, deviceRegistered: !!user.pushToken };
+}
+
+export async function setPushEnabled(userId: string, pushEnabled: boolean) {
+  await prisma.user.update({ where: { id: userId }, data: { pushEnabled } });
+  return { pushEnabled };
 }

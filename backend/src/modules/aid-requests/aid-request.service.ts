@@ -295,6 +295,8 @@ export async function disburseAidRequest(id: string, adminId: string, note?: str
     { amount: request.amount },
     request.id
   );
+  const beneficiary = await prisma.user.findUnique({ where: { id: request.userId }, select: { name: true } });
+  await notifyAdmins("admin_aid_disbursed", { name: beneficiary?.name ?? "", amount: request.amount }, request.id).catch(() => {});
 
   return request;
 }
@@ -404,6 +406,7 @@ export async function disburseAidRequestViaMypvit(id: string, adminId: string) {
   await notifyUser(request.userId, "aid_request_disbursed_auto", {
     amount: request.amount, operator: operator === "AIRTEL_MONEY" ? "Airtel Money" : "Moov Money",
   }, request.id);
+  await notifyAdmins("admin_aid_disbursed", { name: existing.user.name, amount: request.amount }, request.id).catch(() => {});
   return request;
 }
 

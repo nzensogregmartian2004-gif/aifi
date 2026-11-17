@@ -5,7 +5,7 @@ import { AppError } from "../errors";
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth";
 import { changePassword } from "../modules/users/auth.controller";
-import { savePushToken } from "../modules/notifications/notification.service";
+import { savePushToken, getNotificationSettings, setPushEnabled } from "../modules/notifications/notification.service";
 import { validateBody } from "../middleware/validate";
 import { changePasswordSchema } from "../validation/schemas";
 
@@ -39,6 +39,29 @@ router.post("/change-password", validateBody(changePasswordSchema), async (req, 
     res.status(400).json(errorBody(err));
   }
 });
+
+// Activer / désactiver les notifications push (depuis le tableau de bord client ou admin).
+router.get("/notification-settings", async (req, res) => {
+  try {
+    res.json(await getNotificationSettings(req.auth!.userId));
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+});
+
+const notificationSettingsHandler = async (req: import("express").Request, res: import("express").Response) => {
+  try {
+    const pushEnabled = req.body?.pushEnabled;
+    if (typeof pushEnabled !== "boolean") {
+      throw new AppError("INVALID_SETTING", "Valeur attendue : pushEnabled (true ou false)");
+    }
+    res.json(await setPushEnabled(req.auth!.userId, pushEnabled));
+  } catch (err: any) {
+    res.status(400).json(errorBody(err));
+  }
+};
+router.put("/notification-settings", notificationSettingsHandler);
+router.patch("/notification-settings", notificationSettingsHandler);
 
 router.post("/push-token", async (req, res) => {
   try {

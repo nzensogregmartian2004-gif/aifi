@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { prisma } from "../../db/client";
 import { signToken } from "../../middleware/auth";
 import { sendAdminMessage } from "../messages/message.service";
+import { notifyAdmins } from "../notifications/notification.service";
 
 function generateReferralCode(): string {
   return crypto.randomBytes(4).toString("hex").toUpperCase(); // ex: "A1B2C3D4"
@@ -112,6 +113,7 @@ export async function register(name: string, phone: string, password: string, re
   }
 
   await sendWelcomeMessage(user.id);
+  await notifyAdmins("admin_client_registered", { name }).catch(() => {});
 
   return user;
 }

@@ -11,7 +11,7 @@ import { lateState, surchargeFor, dailyInterest, sameLocalDay, formatAmount, rou
  *  - après le sursis, pour chaque jour de retard :
  *      · le montant dû augmente de l'intérêt journalier de la grille (calcul exact, total arrondi
  *        au franc le plus proche, recalculé à partir du montant de base : jamais cumulé) ;
- *      · la confiance baisse de latePenaltyPoints points, jusqu'à zéro ;
+ *      · une pénalité de confiance unique (latePenaltyPoints) est retirée au premier jour de retard, jusqu'à zéro ;
  *  - un jour de retard n'est jamais facturé deux fois (lateDaysCharged).
  * Il n'y a pas de blocage de compte.
  */
@@ -79,9 +79,10 @@ export async function applyLateSurcharges(now: Date = new Date()) {
     // Pénalité de confiance : par jour de retard, jusqu'à épuisement des points (jamais en dessous de zéro).
     const before = await prisma.user.findUniqueOrThrow({ where: { id: request.userId }, select: { points: true } });
     let pointsLost = 0;
-    const penalty = settings.latePenaltyPoints * newlyLate;
+    // Pénalité unique : retirée une seule fois, au premier jour de retard (montant défini par l'admin).
+    const penalty = firstLateDay ? settings.latePenaltyPoints : 0;
     if (penalty > 0 && before.points > 0) {
-      const after = await addPoints(request.userId, -penalty, `penalite_retard_jour_${state.lateDays}`);
+      const after = await addPoints(request.userId, -penalty, "penalite_retard_unique");
       pointsLost = before.points - after.points;
     }
 

@@ -173,8 +173,9 @@ export const durationTierSchema = z.object({
 });
 
 export const submitVerificationSchema = z.object({
-  documentType: z.enum(["CNI", "PASSPORT", "RECEPISSE", "CNAMGS", "PERMIS", "OTHER"]),
+  documentType: z.enum(["CNI", "PASSPORT", "RECEPISSE", "CNAMGS", "PERMIS", "STUDENT_CARD", "OTHER"]),
   frontUrl: imageUrlPath,
   backUrl: optionalImageUrl,
+  selfieUrl: imageUrlPath, // photo de la personne, pièce en main à côté du visage (obligatoire)
   extraUrls: z.array(imageUrlPath).max(5).default([]),
 });

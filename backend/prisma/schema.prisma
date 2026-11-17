@@ -102,6 +102,7 @@ model User {
   createdAt      DateTime   @default(now())
   anonymizedAt   DateTime?
   pushToken      String?
+  pushEnabled    Boolean   @default(true) // alertes push actives (la boîte AIFI reste alimentée)
   // Incrémenté à chaque changement/réinitialisation de mot de passe : invalide les anciens tokens.
   tokenVersion   Int        @default(0)
   onTimeStreak Int @default(0)
@@ -204,7 +205,7 @@ model AppSettings {
   commissionPercent  Int    @default(2)
   minWithdrawal      Int    @default(1000)
   minRepaymentAmount Int    @default(500)
-  latePenaltyPoints  Int    @default(10) // points de confiance retirés par jour de retard, après le sursis (jusqu'à zéro)
+  latePenaltyPoints  Int    @default(10) // points de confiance retirés UNE SEULE FOIS, au premier jour de retard après le sursis (jusqu'à zéro)
   streakLength       Int @default(3)
   streakBonusPoints  Int @default(10)
   reminderDaysBefore Int    @default(2)
@@ -293,6 +294,7 @@ model IdentityVerification {
   frontUrl     String
   backUrl      String?
   extraUrls    String[]  @default([])
+  selfieUrl    String?
   status       String    @default("PENDING")
   reviewNote   String?
   riskFlags    String[]  @default([])

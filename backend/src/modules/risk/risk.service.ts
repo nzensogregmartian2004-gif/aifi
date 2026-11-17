@@ -68,7 +68,7 @@ export async function getUserRisk(userId: string) {
     graceDays: worst?.request.graceDays ?? 0,
     surchargeTotal,
     dailyAmount: worst ? Math.round(dailyInterest(worst.request.interestAmount, worst.request.gridDurationDays)) : 0,
-    pointsPerDay: settings.latePenaltyPoints,
+    pointsOnce: settings.latePenaltyPoints,
   };
 }
 

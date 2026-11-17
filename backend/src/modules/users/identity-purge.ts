@@ -34,7 +34,7 @@ export async function purgeIdentityFiles(userId: string): Promise<number> {
   const uploads = await prisma.upload.findMany({ where: { ownerId: userId }, select: { url: true } });
 
   const candidates = new Set<string>([
-    ...(verification ? [verification.frontUrl, verification.backUrl, ...verification.extraUrls] : [])
+    ...(verification ? [verification.frontUrl, verification.backUrl, verification.selfieUrl, ...verification.extraUrls] : [])
       .filter((u): u is string => !!u),
     ...messages.map((m) => m.imageUrl as string),
     ...uploads.map((u) => u.url),

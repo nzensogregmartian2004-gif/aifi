@@ -123,6 +123,12 @@ export async function recordRepayment(aidRequestId: string, amount: number, admi
       { amount, remaining: result.remainingAfter },
       aidRequestId
     );
+    const payer = await prisma.user.findUnique({ where: { id: result.userId }, select: { name: true } });
+    await notifyAdmins(
+      "admin_repayment_received",
+      { name: payer?.name ?? "", amount, remaining: result.remainingAfter },
+      aidRequestId
+    ).catch(() => {});
 
   } catch (err) {
     console.error("[repayment] effets après commit non finalisés :", err);

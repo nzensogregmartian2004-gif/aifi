@@ -9,7 +9,7 @@ export async function getMyVerification(userId: string) {
 
 export async function submitVerification(
   userId: string,
-  input: { documentType: string; frontUrl: string; backUrl?: string; extraUrls: string[] }
+  input: { documentType: string; frontUrl: string; backUrl?: string; selfieUrl: string; extraUrls: string[] }
 ) {
   const existing = await prisma.identityVerification.findUnique({ where: { userId } });
   if (existing?.status === "APPROVED") {
@@ -22,17 +22,18 @@ export async function submitVerification(
   }
 
   // Chaque fichier doit avoir été envoyé par ce client (sinon on pourrait joindre le fichier d'un autre).
-  for (const url of [input.frontUrl, input.backUrl, ...input.extraUrls]) {
+  for (const url of [input.frontUrl, input.backUrl, input.selfieUrl, ...input.extraUrls]) {
     await assertOwnUpload(url, userId);
   }
 
-  const urls = [input.frontUrl, input.backUrl, ...input.extraUrls].filter((u): u is string => !!u);
+  const urls = [input.frontUrl, input.backUrl, input.selfieUrl, ...input.extraUrls].filter((u): u is string => !!u);
   const riskFlags = await checkVerification(userId, urls);
 
   const data = {
     documentType: input.documentType,
     frontUrl: input.frontUrl,
     backUrl: input.backUrl ?? null,
+    selfieUrl: input.selfieUrl,
     extraUrls: input.extraUrls,
     status: "PENDING",
     reviewNote: null,
