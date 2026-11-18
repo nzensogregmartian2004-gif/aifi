@@ -76,7 +76,7 @@ export async function applyLateSurcharges(now: Date = new Date()) {
       await prisma.user.update({ where: { id: request.userId }, data: { onTimeStreak: 0 } });
     }
 
-    // Pénalité de confiance : par jour de retard, jusqu'à épuisement des points (jamais en dessous de zéro).
+    // Pénalité de confiance : une seule fois, au premier jour de retard, jusqu'à zéro point.
     const before = await prisma.user.findUniqueOrThrow({ where: { id: request.userId }, select: { points: true } });
     let pointsLost = 0;
     // Pénalité unique : retirée une seule fois, au premier jour de retard (montant défini par l'admin).
