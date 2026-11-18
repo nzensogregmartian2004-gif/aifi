@@ -1,13 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 
 /**
- * Adresse réelle de l'appelant, telle que vue par le proxy de Render. Express est configuré
- * avec trust proxy = 1 (app.ts) : il lit l'IP que le proxy ajoute à X-Forwarded-For, et le
- * client ne peut pas écrire cette valeur.
- *
- * On n'utilise PAS CF-Connecting-IP : cet en-tête est envoyé par le client lui-même (pas de
- * Cloudflare devant le serveur), et il permettait de contourner la liste blanche MyPVit et
- * les limites de débit.
+ * Adresse réelle de l'appelant. Le serveur est derrière Cloudflare puis Render :
+ * app.ts configure trust proxy = 2, donc req.ip est l'IP du client, jamais celle d'un proxy.
+ * On ne lit pas CF-Connecting-IP : cet en-tête est envoyé par le client lui-même.
  */
 export function clientIp(req: Request): string {
   return (req.ip ?? "").replace(/^::ffff:/, "");

@@ -17,7 +17,10 @@ export const app = express();
 // Render place le serveur derrière un reverse proxy : on lui fait confiance
 // pour que express-rate-limit identifie correctement l'IP réelle du client
 // via X-Forwarded-For, plutôt que de tout compter comme une seule IP (le proxy).
-app.set("trust proxy", 1);
+// Chaîne réelle : client -> Cloudflare -> Render -> application.
+// Deux intermédiaires de confiance : req.ip est alors l'IP du client, et non celle de Cloudflare
+// (qui était partagée par tous les utilisateurs d'un même point de présence).
+app.set("trust proxy", 2);
 
 // L'app mobile ne passe pas par CORS. Seules les origines listées dans CORS_ORIGINS
 // (séparées par des virgules) peuvent appeler l'API depuis un navigateur ; par défaut, aucune.
@@ -38,6 +41,7 @@ app.use(
     keyGenerator: clientIp,
     windowMs: 60 * 1000,
     limit: 120, // 120 requêtes / minute / IP, large pour un usage normal
+    message: { error: "Trop de requêtes. Réessaie dans une minute.", code: "RATE_LIMITED" },
     // Callbacks MyPVit depuis une IP autorisée : pas de limite, sinon des paiements seraient perdus
     skip: (req) => req.path.startsWith("/payments/mypvit") && isAllowlistedMypvitIp(req),
     standardHeaders: true,
