@@ -8,11 +8,11 @@
   "license": "ISC",
   "type": "commonjs",
   "engines": {
-    "node": ">=18"
+    "node": ">=20 <23"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "postinstall": "prisma generate",
+    "postinstall": "node ./node_modules/prisma/build/index.js generate",
     "build": "tsc",
     "start": "prisma migrate deploy && npm run seed && node dist/server.js",
     "prisma:migrate": "prisma migrate dev",
