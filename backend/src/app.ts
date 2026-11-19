@@ -1,3 +1,4 @@
+import { apiNotFound } from "./middleware/not-found";
 import express from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
@@ -60,6 +61,9 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/account", accountRoutes);
 app.use("/api/uploads", uploadsRoutes);
 app.use("/api/payments", paymentsRoutes);
+
+// Route /api inconnue : JSON explicite (méthode + chemin), au lieu d'une page HTML
+app.use("/api", apiNotFound);
 
 // Gestion des erreurs non catchées dans les routes
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

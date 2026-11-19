@@ -1,3 +1,4 @@
+import { parsePushEnabled } from "../modules/notifications/push-settings-input";
 import { errorBody } from "../errors";
 import { prisma } from "../db/client";
 import { SUPPORTED_LANGUAGES } from "../notifications/templates";
@@ -51,10 +52,7 @@ router.get("/notification-settings", async (req, res) => {
 
 const notificationSettingsHandler = async (req: import("express").Request, res: import("express").Response) => {
   try {
-    const pushEnabled = req.body?.pushEnabled;
-    if (typeof pushEnabled !== "boolean") {
-      throw new AppError("INVALID_SETTING", "Valeur attendue : pushEnabled (true ou false)");
-    }
+    const pushEnabled = parsePushEnabled(req.body);
     res.json(await setPushEnabled(req.auth!.userId, pushEnabled));
   } catch (err: any) {
     res.status(400).json(errorBody(err));
