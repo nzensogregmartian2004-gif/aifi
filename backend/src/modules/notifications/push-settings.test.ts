@@ -1,6 +1,7 @@
 import { describe, test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import path from "path";
+import { pathToFileURL } from "node:url";
 
 // Base de données simulée : seules les méthodes utilisées par le service sont implémentées.
 const users: any[] = [];
@@ -25,7 +26,7 @@ const clientPath = require.resolve(path.resolve("src/db/client.ts"));
   return { ok: true, status: 200, json: async () => ({ data: { status: "ok" } }) };
 };
 
-const svc = () => import(path.resolve("src/modules/notifications/notification.service.ts"));
+const svc = () => import(pathToFileURL(path.resolve("src/modules/notifications/notification.service.ts")).href);
 
 describe("réglage des notifications push", () => {
   beforeEach(() => {

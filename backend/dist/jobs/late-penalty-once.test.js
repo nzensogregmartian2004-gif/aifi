@@ -1,37 +1,4 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -39,6 +6,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const node_test_1 = require("node:test");
 const strict_1 = __importDefault(require("node:assert/strict"));
 const path_1 = __importDefault(require("path"));
+const node_url_1 = require("node:url");
 // Base simulée : seules les opérations utilisées par le job de retard sont implémentées.
 const state = { settings: {}, requests: [], user: {}, notifs: [] };
 const fake = {
@@ -85,12 +53,12 @@ const loan = (id, userId) => ({
         state.notifs = [];
     });
     (0, node_test_1.test)("premier jour de retard : les points baissent du montant réglé dans l'admin", async () => {
-        const job = await Promise.resolve(`${path_1.default.resolve("src/jobs/late-surcharge.job.ts")}`).then(s => __importStar(require(s)));
+        const job = await import((0, node_url_1.pathToFileURL)(path_1.default.resolve("src/jobs/late-surcharge.job.ts")).href);
         await (job.applyLateSurcharges ?? job.default.applyLateSurcharges)(after(3));
         strict_1.default.equal(state.user.points, 18, "25 - 7 = 18");
     });
     (0, node_test_1.test)("jours suivants : aucune nouvelle déduction", async () => {
-        const job = await Promise.resolve(`${path_1.default.resolve("src/jobs/late-surcharge.job.ts")}`).then(s => __importStar(require(s)));
+        const job = await import((0, node_url_1.pathToFileURL)(path_1.default.resolve("src/jobs/late-surcharge.job.ts")).href);
         const run = job.applyLateSurcharges ?? job.default.applyLateSurcharges;
         await run(after(3));
         await run(after(4));
@@ -99,7 +67,7 @@ const loan = (id, userId) => ({
     });
     (0, node_test_1.test)("l'admin change le montant : la nouvelle valeur est appliquée", async () => {
         state.settings = { latePenaltyPoints: 3 };
-        const job = await Promise.resolve(`${path_1.default.resolve("src/jobs/late-surcharge.job.ts")}`).then(s => __importStar(require(s)));
+        const job = await import((0, node_url_1.pathToFileURL)(path_1.default.resolve("src/jobs/late-surcharge.job.ts")).href);
         await (job.applyLateSurcharges ?? job.default.applyLateSurcharges)(after(3));
         strict_1.default.equal(state.user.points, 22, "25 - 3 = 22");
     });

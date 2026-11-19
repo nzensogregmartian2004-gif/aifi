@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+const push_settings_input_1 = require("../modules/notifications/push-settings-input");
 const errors_1 = require("../errors");
 const client_1 = require("../db/client");
 const templates_1 = require("../notifications/templates");
@@ -50,10 +51,7 @@ router.get("/notification-settings", async (req, res) => {
 });
 const notificationSettingsHandler = async (req, res) => {
     try {
-        const pushEnabled = req.body?.pushEnabled;
-        if (typeof pushEnabled !== "boolean") {
-            throw new errors_2.AppError("INVALID_SETTING", "Valeur attendue : pushEnabled (true ou false)");
-        }
+        const pushEnabled = (0, push_settings_input_1.parsePushEnabled)(req.body);
         res.json(await (0, notification_service_1.setPushEnabled)(req.auth.userId, pushEnabled));
     }
     catch (err) {

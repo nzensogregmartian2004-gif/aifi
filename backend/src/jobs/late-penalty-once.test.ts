@@ -1,6 +1,7 @@
 import { describe, test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import path from "path";
+import { pathToFileURL } from "node:url";
 
 // Base simulée : seules les opérations utilisées par le job de retard sont implémentées.
 const state: any = { settings: {}, requests: [], user: {}, notifs: [] };
@@ -50,13 +51,13 @@ describe("pénalité de confiance : une seule fois, montant réglable", () => {
   });
 
   test("premier jour de retard : les points baissent du montant réglé dans l'admin", async () => {
-    const job: any = await import(path.resolve("src/jobs/late-surcharge.job.ts"));
+    const job: any = await import(pathToFileURL(path.resolve("src/jobs/late-surcharge.job.ts")).href);
     await (job.applyLateSurcharges ?? job.default.applyLateSurcharges)(after(3));
     assert.equal(state.user.points, 18, "25 - 7 = 18");
   });
 
   test("jours suivants : aucune nouvelle déduction", async () => {
-    const job: any = await import(path.resolve("src/jobs/late-surcharge.job.ts"));
+    const job: any = await import(pathToFileURL(path.resolve("src/jobs/late-surcharge.job.ts")).href);
     const run = job.applyLateSurcharges ?? job.default.applyLateSurcharges;
     await run(after(3));
     await run(after(4));
@@ -66,7 +67,7 @@ describe("pénalité de confiance : une seule fois, montant réglable", () => {
 
   test("l'admin change le montant : la nouvelle valeur est appliquée", async () => {
     state.settings = { latePenaltyPoints: 3 };
-    const job: any = await import(path.resolve("src/jobs/late-surcharge.job.ts"));
+    const job: any = await import(pathToFileURL(path.resolve("src/jobs/late-surcharge.job.ts")).href);
     await (job.applyLateSurcharges ?? job.default.applyLateSurcharges)(after(3));
     assert.equal(state.user.points, 22, "25 - 3 = 22");
   });

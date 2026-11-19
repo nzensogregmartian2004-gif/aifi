@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.app = void 0;
+const not_found_1 = require("./middleware/not-found");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const express_rate_limit_1 = __importDefault(require("express-rate-limit"));
@@ -57,6 +58,8 @@ exports.app.use("/api/notifications", notifications_routes_1.default);
 exports.app.use("/api/account", account_routes_1.default);
 exports.app.use("/api/uploads", uploads_routes_1.default);
 exports.app.use("/api/payments", payments_routes_1.default);
+// Route /api inconnue : JSON explicite (méthode + chemin), au lieu d'une page HTML
+exports.app.use("/api", not_found_1.apiNotFound);
 // Gestion des erreurs non catchées dans les routes
 exports.app.use((err, _req, res, _next) => {
     console.error(err);
