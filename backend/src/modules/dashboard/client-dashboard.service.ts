@@ -41,8 +41,6 @@ export async function getClientDashboard(userId: string) {
   const displayedPoints = user.isPremium ? user.points + 20 : user.points;
 
   return {
-    id: user.id,
-    status: user.status,
     name: user.name,
     referralCode: user.referralCode,
     trustLevel: getTrustLevel(displayedPoints),

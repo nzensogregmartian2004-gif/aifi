@@ -121,7 +121,7 @@ export async function requestAid(
 
   const requester = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   if (requester.status !== "ACTIVE") {
-    throw new AppError("ACCOUNT_NOT_ACTIVE", "Ton compte doit d’abord être validé");
+    throw new AppError("ACCOUNT_NOT_ACTIVE", "Ton compte doit d'abord être validé par un administrateur avant de pouvoir demander une aide.");
   }
 
   const terms = await computeRequestTerms(userId, amount, requestedDurationDays);

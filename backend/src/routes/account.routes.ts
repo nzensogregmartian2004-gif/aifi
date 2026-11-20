@@ -14,23 +14,6 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Statut du compte relu en base après validation/réactivation administrative.
-router.get("/me", async (req, res) => {
-  try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.auth!.userId },
-      select: { id: true, name: true, phone: true, role: true, status: true, isSuperAdmin: true },
-    });
-    if (!user) return res.status(401).json({ error: "Session expirée.", code: "SESSION_EXPIRED" });
-    if (user.status === "SUSPENDED") {
-      return res.status(403).json({ error: "Compte suspendu", code: "ACCOUNT_SUSPENDED" });
-    }
-    return res.json({ user });
-  } catch (err: any) {
-    return res.status(500).json(errorBody(err));
-  }
-});
-
 // Ping de présence (requireAuth met déjà lastSeenAt à jour). Il transmet aussi la langue
 // de l'app : les notifications suivantes seront écrites dans cette langue.
 router.post("/heartbeat", async (req, res) => {
@@ -46,6 +29,22 @@ router.post("/heartbeat", async (req, res) => {
     console.error("[heartbeat] langue non enregistrée :", err);
   }
   res.json({ ok: true });
+});
+
+// Statut et rôle relus en base. L'app s'en sert pour se mettre à jour sans reconnexion,
+// par exemple quand l'administrateur valide le compte pendant que le client a l'app ouverte.
+router.get("/me", async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.auth!.userId },
+      select: { id: true, name: true, role: true, status: true, isSuperAdmin: true },
+    });
+    if (!user) return res.status(404).json({ error: "Utilisateur introuvable", code: "USER_NOT_FOUND" });
+    res.json({ user });
+  } catch (err) {
+    console.error("[account/me] lecture impossible :", err);
+    res.status(500).json(errorBody(err));
+  }
 });
 
 router.post("/change-password", validateBody(changePasswordSchema), async (req, res) => {
