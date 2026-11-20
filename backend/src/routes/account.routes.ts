@@ -14,6 +14,23 @@ const router = Router();
 
 router.use(requireAuth);
 
+// Statut du compte relu en base après validation/réactivation administrative.
+router.get("/me", async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.auth!.userId },
+      select: { id: true, name: true, phone: true, role: true, status: true, isSuperAdmin: true },
+    });
+    if (!user) return res.status(401).json({ error: "Session expirée.", code: "SESSION_EXPIRED" });
+    if (user.status === "SUSPENDED") {
+      return res.status(403).json({ error: "Compte suspendu", code: "ACCOUNT_SUSPENDED" });
+    }
+    return res.json({ user });
+  } catch (err: any) {
+    return res.status(500).json(errorBody(err));
+  }
+});
+
 // Ping de présence (requireAuth met déjà lastSeenAt à jour). Il transmet aussi la langue
 // de l'app : les notifications suivantes seront écrites dans cette langue.
 router.post("/heartbeat", async (req, res) => {
